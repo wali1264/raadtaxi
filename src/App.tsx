@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, CSSProperties, useCallback } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -306,11 +307,7 @@ const StarIcon = ({ filled, onClick, onMouseEnter, onMouseLeave, style, ariaLabe
       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
     </svg>
 );
-const ChevronUpIcon = ({ style }: { style?: CSSProperties }) => (
-    <svg style={{ width: '1.5rem', height: '1.5rem', ...style }} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clipRule="evenodd" />
-    </svg>
-  );
+
 const PhoneIcon = ({ style }: { style?: CSSProperties }) => (
     <svg style={{ width: '1.25rem', height: '1.25rem', ...style }} viewBox="0 0 20 20" fill="currentColor">
         <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
@@ -321,12 +318,7 @@ const MessageBubbleIcon = ({ style }: { style?: CSSProperties }) => (
         <path fillRule="evenodd" d="M18 5v8a2 2 0 01-2 2h-5l-5 4v-4H4a2 2 0 01-2-2V5a2 2 0 012-2h12a2 2 0 012 2zM7 8H5v2h2V8zm2 0h2v2H9V8zm6 0h-2v2h2V8z" clipRule="evenodd" />
     </svg>
 );
-const CreditCardIcon = ({ style }: { style?: CSSProperties }) => (
-    <svg style={{ width: '1.25rem', height: '1.25rem', ...style }} viewBox="0 0 20 20" fill="currentColor">
-        <path d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2H4zm0 2h12v1H4V6zm0 3h12v5H4V9z" />
-        <path d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2H4zm0 2h12v1H4V6zm0 3h12v5H4V9z" />
-    </svg>
-);
+
 const EditLocationIcon = ({ style }: { style?: CSSProperties }) => (
     <svg style={{ width: '1.25rem', height: '1.25rem', ...style }} viewBox="0 0 20 20" fill="currentColor">
         <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
@@ -703,14 +695,14 @@ const OtpScreen = ({ currentLang, phoneNumber, onConfirm, onResendOtp, onBack }:
 interface Service { id: string; nameKey: keyof typeof translations.fa; descKey: keyof typeof translations.fa; price?: number; pricePerKm?: number; imageComponent: React.FC<{ style?: CSSProperties }>; }
 interface ServiceCategory { id: string; nameKey: keyof typeof translations.fa; services: Service[]; }
 const serviceData: ServiceCategory[] = [ { id: 'passenger', nameKey: 'serviceCategoryPassenger', services: [ { id: 'rickshaw', nameKey: 'serviceNameRickshaw', descKey: 'serviceDescRickshaw', pricePerKm: 10, imageComponent: RickshawIcon }, { id: 'car', nameKey: 'serviceNameCar', descKey: 'serviceDescCar', pricePerKm: 15, imageComponent: TaxiIcon }, ] }, { id: 'cargo', nameKey: 'serviceCategoryCargo', services: [ { id: 'cargoRickshaw', nameKey: 'serviceNameCargoRickshaw', descKey: 'serviceDescCargoRickshaw', pricePerKm: 20, imageComponent: MotorcycleRickshawIcon }, ] }, { id: 'courier', nameKey: 'serviceCategoryCourier', services: [] } ];
-interface ServiceSelectionSheetProps { currentLang: Language; originAddress: string; destinationAddress: string; routeDistanceKm: number | null; isCalculatingDistance: boolean; distanceError: string | null; onClose: () => void; onRequestRide: (service: Service, origin: string, destination: string, estimatedPrice: number | null) => void; }
-const ServiceSelectionSheet: React.FC<ServiceSelectionSheetProps> = ({ currentLang, originAddress, destinationAddress, routeDistanceKm, isCalculatingDistance, distanceError, onClose, onRequestRide }) => {
+interface ServiceSelectionSheetProps { currentLang: Language; originAddress: string; destinationAddress: string; routeDistanceKm: number | null; isCalculatingDistance: boolean; distanceError: string | null; onRequestRide: (service: Service, estimatedPrice: number | null) => void; }
+const ServiceSelectionSheet: React.FC<ServiceSelectionSheetProps> = ({ currentLang, originAddress, destinationAddress, routeDistanceKm, isCalculatingDistance, distanceError, onRequestRide }) => {
   const t = translations[currentLang]; const isRTL = currentLang !== 'en';
   const [activeCategoryId, setActiveCategoryId] = useState<string>(serviceData[0]?.id || 'passenger');
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>( serviceData.find(cat => cat.id === (serviceData[0]?.id || 'passenger'))?.services[0]?.id || null );
   const sheetRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (sheetRef.current) { sheetRef.current.style.transform = 'translateY(0)'; } }, []);
-  const handleRequestClick = () => { const activeCategory = serviceData.find(cat => cat.id === activeCategoryId); const service = activeCategory?.services.find(s => s.id === selectedServiceId); if (service) { let estimatedPrice: number | null = null; if (service.pricePerKm && routeDistanceKm !== null) { estimatedPrice = Math.round(service.pricePerKm * routeDistanceKm); } else if (service.price) { estimatedPrice = Math.round(service.price); } onRequestRide(service, originAddress, destinationAddress, estimatedPrice); } else { alert(t.selectServicePrompt); } };
+  const handleRequestClick = () => { const activeCategory = serviceData.find(cat => cat.id === activeCategoryId); const service = activeCategory?.services.find(s => s.id === selectedServiceId); if (service) { let estimatedPrice: number | null = null; if (service.pricePerKm && routeDistanceKm !== null) { estimatedPrice = Math.round(service.pricePerKm * routeDistanceKm); } else if (service.price) { estimatedPrice = Math.round(service.price); } onRequestRide(service, estimatedPrice); } else { alert(t.selectServicePrompt); } };
   const activeCategoryServices = serviceData.find(cat => cat.id === activeCategoryId)?.services || [];
   const sheetStyle: CSSProperties = { position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: 'white', borderTopLeftRadius: '1.5rem', borderTopRightRadius: '1.5rem', boxShadow: '0 -4px 20px rgba(0,0,0,0.15)', padding: '1rem', paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))', maxHeight: '70vh', display: 'flex', flexDirection: 'column', transform: 'translateY(100%)', transition: 'transform 0.3s ease-out', zIndex: 1100, direction: isRTL ? 'rtl' : 'ltr', };
   const tabsContainerStyle: CSSProperties = { display: 'flex', borderBottom: '1px solid #e0e0e0', marginBottom: '1rem', flexShrink: 0, };
@@ -729,8 +721,8 @@ const ServiceSelectionSheet: React.FC<ServiceSelectionSheetProps> = ({ currentLa
             priceDisplay = <div style={serviceItemPriceStyle}>{`${fixedPrice.toLocaleString(currentLang === 'fa' || currentLang === 'ps' ? 'fa-IR' : 'en-US')} ${t.priceUnit}`}</div>; } else { priceDisplay = <div style={priceLoadingErrorStyle}>-</div>; } return ( <div key={service.id} style={serviceItemStyle(service.id === selectedServiceId)} onClick={() => setSelectedServiceId(service.id)} role="radio" aria-checked={service.id === selectedServiceId} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedServiceId(service.id); }} > <div style={serviceItemImageStyle}><ServiceImage style={{width: '90%', height: '90%'}} /></div> <div style={serviceItemDetailsStyle}> <div style={serviceItemNameStyle}>{t[service.nameKey] || service.id}</div> <div style={serviceItemDescStyle}>{t[service.descKey]}</div> </div> {priceDisplay} </div> ) }) : <p style={{textAlign: 'center', color: '#777', padding: '1rem'}}>No services available in this category.</p>} </div> <div style={optionsContainerStyle}> <div style={optionItemStyle} role="button" tabIndex={0} aria-disabled="true"> <FilterIcon style={optionIconStyle} /> {t.rideOptions} </div> <div style={optionItemStyle} role="button" tabIndex={0} aria-disabled="true"> <TagIcon style={optionIconStyle} /> {t.coupon} </div> </div> <div style={footerStyle}> <button style={{...requestButtonStyle, ...( !selectedServiceId || isCalculatingDistance || distanceError ? requestButtonDisabledStyle : {})}} onClick={handleRequestClick} disabled={!selectedServiceId || isCalculatingDistance || !!distanceError} > {t.requestRideButtonText} </button> <button style={scheduleButtonStyle} aria-label={t.scheduledRideButtonAriaLabel} disabled={true}> <ScheduledRideIcon style={{ color: '#555'}}/> </button> </div> </div> );
 };
 type DriverSearchState = 'idle' | 'searching' | 'noDriverFound' | 'driversNotified' | 'driverAssigned';
-interface DriverSearchSheetProps { currentLang: Language; searchState: DriverSearchState; notifiedDriverCount: number; onRetry: () => void; onCancel: () => void; onClose: () => void; selectedServiceName: string; }
-const DriverSearchSheet: React.FC<DriverSearchSheetProps> = ({ currentLang, searchState, notifiedDriverCount, onRetry, onCancel, onClose, selectedServiceName }) => {
+interface DriverSearchSheetProps { currentLang: Language; searchState: DriverSearchState; notifiedDriverCount: number; onRetry: () => void; onCancel: () => void; onClose: () => void; }
+const DriverSearchSheet: React.FC<DriverSearchSheetProps> = ({ currentLang, searchState, notifiedDriverCount, onRetry, onCancel, onClose }) => {
   const t = translations[currentLang]; const isRTL = currentLang !== 'en'; const sheetRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (sheetRef.current) { sheetRef.current.style.transform = 'translateY(0)'; } }, []);
   const sheetStyle: CSSProperties = { position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: 'white', borderTopLeftRadius: '1.5rem', borderTopRightRadius: '1.5rem', boxShadow: '0 -4px 20px rgba(0,0,0,0.15)', padding: '1.5rem', paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))', minHeight: '250px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', transform: 'translateY(100%)', transition: 'transform 0.3s ease-out', zIndex: 1200, direction: isRTL ? 'rtl' : 'ltr', textAlign: 'center', };
@@ -803,7 +795,7 @@ interface TripInProgressSheetProps {
   onRideOptions: () => void;
   onCancelTrip: () => void;
   onSafety: () => void;
-  onClose: () => void; // Used for submitting rating or skipping
+  onClose: () => void; 
 }
 
 const TripInProgressSheet: React.FC<TripInProgressSheetProps> = ({
@@ -1228,7 +1220,7 @@ const MapScreen = ({ currentLang }: { currentLang: Language }) => {
     } 
   };
 
-  const handleRequestRideFromSheet = (service: Service, origin: string, destination: string, estimatedPrice: number | null) => {
+  const handleRequestRideFromSheet = (service: Service, estimatedPrice: number | null) => {
     setShowServiceSheet(false);
     setSelectedServiceForSearch(service);
     setCurrentTripFare(estimatedPrice);
@@ -1322,8 +1314,8 @@ const MapScreen = ({ currentLang }: { currentLang: Language }) => {
         {searchError ? <p style={searchErrorStyle} role="alert">{searchError}</p> : <div style={{...searchErrorStyle, visibility: 'hidden'}}>Placeholder</div> }
         <button style={currentConfirmMainButtonStyle} onMouseEnter={() => setIsConfirmMainButtonHovered(true)} onMouseLeave={() => setIsConfirmMainButtonHovered(false)} onClick={handleConfirmOriginOrDestination} disabled={isLoadingAddress || isSearching || !address} > {selectionMode === 'origin' ? t.confirmOriginButton : t.confirmDestinationButton} </button>
       </div>
-      {showServiceSheet && confirmedOrigin && confirmedDestination && ( <ServiceSelectionSheet currentLang={currentLang} originAddress={confirmedOrigin.address} destinationAddress={confirmedDestination.address} routeDistanceKm={routeDistanceKm} isCalculatingDistance={isCalculatingDistance} distanceError={distanceError} onClose={handleCloseServiceSheet} onRequestRide={handleRequestRideFromSheet} /> )}
-      {showDriverSearchSheet && selectedServiceForSearch && ( <DriverSearchSheet currentLang={currentLang} searchState={driverSearchState} notifiedDriverCount={notifiedDriverCount} onRetry={handleRetryDriverSearch} onCancel={handleCancelDriverSearch} onClose={handleCancelDriverSearch} selectedServiceName={t[selectedServiceForSearch.nameKey] || selectedServiceForSearch.id} /> )}
+      {showServiceSheet && confirmedOrigin && confirmedDestination && ( <ServiceSelectionSheet currentLang={currentLang} originAddress={confirmedOrigin.address} destinationAddress={confirmedDestination.address} routeDistanceKm={routeDistanceKm} isCalculatingDistance={isCalculatingDistance} distanceError={distanceError} onRequestRide={handleRequestRideFromSheet} /> )}
+      {showDriverSearchSheet && selectedServiceForSearch && ( <DriverSearchSheet currentLang={currentLang} searchState={driverSearchState} notifiedDriverCount={notifiedDriverCount} onRetry={handleRetryDriverSearch} onCancel={handleCancelDriverSearch} onClose={handleCancelDriverSearch} /> )}
       {showTripInProgressSheet && ( <TripInProgressSheet currentLang={currentLang} driverDetails={mockDriverData} tripFare={currentTripFare}
         tripPhase={tripPhase} estimatedTimeToDestination={estimatedTimeToDestination}
         displayLevel={tripSheetDisplayLevel} onToggleDisplayLevel={handleToggleTripSheetDisplay}
