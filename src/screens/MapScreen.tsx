@@ -13,27 +13,23 @@ import { DriverSearchSheet } from '../components/DriverSearchSheet';
 import { TripInProgressSheet } from '../components/TripInProgressSheet';
 import { LocationMarkerIcon, DestinationMarkerIcon, HomeIcon, ProfileIcon, GpsIcon, SearchIcon, BackArrowIcon, ChevronDownIcon, CloseIcon, DriverCarIcon } from '../components/icons';
 import { AppContext, useAppContext } from '../contexts/AppContext'; // Import AppContext and useAppContext
+import { userService } from '../services/userService'; // Import userService
 
 interface MapScreenProps {
-  // Props related to global state removed:
-  // currentLang: Language;
-  // loggedInUserId: string | null;
-  // loggedInUserFullName: string | null;
-  // allAppServices: AppService[];
-  // appServiceCategories: AppServiceCategory[];
-  // isLoadingServices: boolean;
-  // serviceFetchError: string | null;
+  onNavigateToProfile: () => void;
 }
 
-export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
+const PASSENGER_REQUEST_TIMEOUT_MS = 90000; // 90 seconds
+
+export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => {
   const { 
     currentLang, 
     loggedInUserId, 
     loggedInUserFullName, 
     allAppServices, 
     appServiceCategories, 
-    isLoadingServicesGlobal, // Renamed from isLoadingServices
-    serviceFetchErrorGlobal, // Renamed from serviceFetchError
+    isLoadingServicesGlobal, 
+    serviceFetchErrorGlobal, 
     t 
   } = useAppContext();
   
@@ -61,6 +57,7 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
   const [currentRideRequestId, setCurrentRideRequestId] = useState<string | null>(null);
   const rideRequestChannelRef = useRef<RealtimeChannel | null>(null);
   const pollingIntervalRef = useRef<number | null>(null);
+  const passengerRequestTimeoutRef = useRef<number | null>(null);
 
 
   const [showTripInProgressSheet, setShowTripInProgressSheet] = useState<boolean>(false);
@@ -249,7 +246,7 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
     confirmedOrigin, 
     confirmedDestination, 
     tripPhase, 
-    supabase
+    supabase // supabase client directly, not from context
   ]);
   
   const handleGpsClick = () => { if (navigator.geolocation && mapInstanceRef.current && !showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet) { const map = mapInstanceRef.current; navigator.geolocation.getCurrentPosition( (position) => { const userLatLng: L.LatLngExpression = [position.coords.latitude, position.coords.longitude]; map.setView(userLatLng, 15); if (debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(map).catch(err => console.error("Debounced GPS click call failed:", err)); } }, (error: GeolocationPositionError) => { console.error("Error getting GPS location:", error); alert("Unable to retrieve your location. Please ensure location services are enabled."); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 } ); } };
@@ -273,71 +270,59 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
     setShowDriverSearchSheet(true);
     setCurrentRideRequestId(null);
 
-    const { data, error } = await supabase
-      .from('ride_requests')
-      .insert([
-        {
-          passenger_id: loggedInUserId,
-          passenger_name: passengerNameForRequest,
-          origin_address: originLoc.address,
-          destination_address: destLoc.address,
-          origin_lat: originLoc.lat,
-          origin_lng: originLoc.lng,
-          destination_lat: destLoc.lat,
-          destination_lng: destLoc.lng,
-          service_id: service.id,
-          estimated_fare: estimatedPrice,
-          status: 'pending'
-        }
-      ])
-      .select()
-      .single();
+    try {
+        const rideData = await userService.createRideRequest({
+            passenger_id: loggedInUserId,
+            passenger_name: passengerNameForRequest,
+            origin_address: originLoc.address,
+            destination_address: destLoc.address,
+            origin_lat: originLoc.lat,
+            origin_lng: originLoc.lng,
+            destination_lat: destLoc.lat,
+            destination_lng: destLoc.lng,
+            service_id: service.id,
+            estimated_fare: estimatedPrice,
+            status: 'pending'
+        });
+        
+        console.log('Ride request created:', rideData);
+        setCurrentRideRequestId(rideData.id);
+        setDriverSearchState('awaiting_driver_acceptance');
 
-    if (error || !data) {
-      console.error('Error creating ride request (raw object):', error);
-      let finalAlertMessage = t.rideRequestCreationError;
-
-      if (error) {
-        let detailsForAlert = "An error occurred.";
-        let actualCodePrefix = "";
-
-        const errObj = error as any;
-
-        if (errObj.message) {
-            if (typeof errObj.message === 'string' && errObj.message.trim() !== '') {
-                detailsForAlert = errObj.message;
-            } else if (typeof errObj.message === 'object') {
-                detailsForAlert = "Received complex error message object; please check console for full details.";
+    } catch (error: any) {
+        console.error('Error creating ride request (raw object):', error);
+        let finalAlertMessage = t.rideRequestCreationError;
+        if (error) {
+            let detailsForAlert = "An error occurred.";
+            let actualCodePrefix = "";
+            const errObj = error as any;
+            if (errObj.message) {
+                if (typeof errObj.message === 'string' && errObj.message.trim() !== '') detailsForAlert = errObj.message;
+                else if (typeof errObj.message === 'object') detailsForAlert = "Received complex error message object; please check console for full details.";
             }
-        }
-
-        if (errObj.code != null) {
-            if (typeof errObj.code === 'string' || typeof errObj.code === 'number') {
-                actualCodePrefix = `Code ${errObj.code}: `;
-            } else {
-                console.warn("Error code is a complex type:", errObj.code);
-                actualCodePrefix = `Code (see console): `;
+            if (errObj.code != null) {
+                if (typeof errObj.code === 'string' || typeof errObj.code === 'number') actualCodePrefix = `Code ${errObj.code}: `;
+                else { console.warn("Error code is a complex type:", errObj.code); actualCodePrefix = `Code (see console): `; }
             }
+            finalAlertMessage += ` (${actualCodePrefix}${detailsForAlert})`;
         }
-        finalAlertMessage += ` (${actualCodePrefix}${detailsForAlert})`;
-      } else if (!data) {
-        finalAlertMessage += " (Operation completed but no data was returned as expected.)";
-      }
-
-      alert(finalAlertMessage);
-      setDriverSearchState('noDriverFound');
-      setShowDriverSearchSheet(true);
-      return;
+        alert(finalAlertMessage);
+        setDriverSearchState('noDriverFound');
+        setShowDriverSearchSheet(true);
     }
-
-    console.log('Ride request created:', data);
-    const newRideRequest = data as RideRequest;
-    setCurrentRideRequestId(newRideRequest.id);
-    setDriverSearchState('awaiting_driver_acceptance');
   };
 
+  const clearPassengerRequestTimeout = useCallback(() => {
+    if (passengerRequestTimeoutRef.current) {
+        clearTimeout(passengerRequestTimeoutRef.current);
+        passengerRequestTimeoutRef.current = null;
+        console.log('[MapScreen Timeout] Passenger request timeout cleared.');
+    }
+  }, []);
+  
   const handleDriverAssigned = useCallback((updatedRequest: RideRequest) => {
     console.log('[MapScreen handleDriverAssigned] Triggered for request:', updatedRequest);
+    clearPassengerRequestTimeout(); // Clear timeout as driver is assigned
     const driverServiceId = selectedServiceForSearch?.id || 'car'; 
     
     const assignedDriverDetails: DriverDetails = {
@@ -366,7 +351,7 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
     }
-  }, [selectedServiceForSearch, t.roleDriver, currentRideRequestId, supabase, t.defaultServiceName, t]);
+  }, [selectedServiceForSearch, t.roleDriver, currentRideRequestId, supabase, t.defaultServiceName, t, clearPassengerRequestTimeout]);
 
 
   const pollRideRequestStatus = useCallback(async (rideRequestId: string) => {
@@ -375,34 +360,26 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
             clearInterval(pollingIntervalRef.current);
             pollingIntervalRef.current = null;
         }
+        clearPassengerRequestTimeout();
         return;
     }
     console.log(`[MapScreen Polling] Polling status for ride ID: ${rideRequestId}`);
     try {
-        const { data: polledRequest, error } = await supabase
-            .from('ride_requests')
-            .select('*')
-            .eq('id', rideRequestId)
-            .single();
-
-        if (error) {
-            console.error('[MapScreen Polling] Error polling ride request status:', error);
-            return;
-        }
+        const polledRequest = await userService.fetchRideRequestById(rideRequestId);
 
         if (polledRequest) {
-            const updatedRequest = polledRequest as RideRequest;
-            console.log('[MapScreen Polling] Polled Request Data:', updatedRequest);
+            console.log('[MapScreen Polling] Polled Request Data:', polledRequest);
 
-            if (updatedRequest.status === 'accepted' && updatedRequest.driver_id) {
+            if (polledRequest.status === 'accepted' && polledRequest.driver_id) {
                 if (driverSearchState === 'awaiting_driver_acceptance') {
-                    console.log('[MapScreen Polling] CONDITION MET VIA POLLING: Ride accepted by driver!', updatedRequest);
-                    handleDriverAssigned(updatedRequest);
+                    console.log('[MapScreen Polling] CONDITION MET VIA POLLING: Ride accepted by driver!', polledRequest);
+                    handleDriverAssigned(polledRequest);
                 }
-            } else if (['cancelled_by_driver', 'no_drivers_available', 'cancelled_by_passenger'].includes(updatedRequest.status)) {
+            } else if (['cancelled_by_driver', 'no_drivers_available', 'cancelled_by_passenger', 'timed_out_passenger'].includes(polledRequest.status)) {
                  if (driverSearchState === 'awaiting_driver_acceptance') {
-                    console.log(`[MapScreen Polling] Ride status is terminal (${updatedRequest.status}), updating UI.`);
+                    console.log(`[MapScreen Polling] Ride status is terminal (${polledRequest.status}), updating UI.`);
                     setDriverSearchState('noDriverFound');
+                    clearPassengerRequestTimeout();
                      if (pollingIntervalRef.current) {
                         clearInterval(pollingIntervalRef.current);
                         pollingIntervalRef.current = null;
@@ -413,18 +390,36 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
                     }
                  }
             } else {
-                console.log(`[MapScreen Polling] Status not 'accepted' or no driver_id. Status: ${updatedRequest.status}, Driver ID: ${updatedRequest.driver_id}`);
+                console.log(`[MapScreen Polling] Status not 'accepted' or no driver_id. Status: ${polledRequest.status}, Driver ID: ${polledRequest.driver_id}`);
             }
         }
     } catch (e) {
         console.error('[MapScreen Polling] Exception during pollRideRequestStatus:', e);
     }
-  }, [supabase, driverSearchState, handleDriverAssigned]);
+  }, [supabase, driverSearchState, handleDriverAssigned, clearPassengerRequestTimeout]);
 
 
   useEffect(() => {
     if (driverSearchState === 'awaiting_driver_acceptance' && currentRideRequestId) {
-        console.log(`[MapScreen Realtime] Setting up listener for ride ID: ${currentRideRequestId}`);
+        console.log(`[MapScreen Realtime/Timeout] Setting up listener and timeout for ride ID: ${currentRideRequestId}`);
+        
+        clearPassengerRequestTimeout(); // Clear any pre-existing timeout for this ref
+        passengerRequestTimeoutRef.current = window.setTimeout(async () => {
+            if (driverSearchState === 'awaiting_driver_acceptance' && currentRideRequestId) { // Double check state
+                console.log(`[MapScreen Timeout] Passenger request ${currentRideRequestId} timed out.`);
+                try {
+                    await userService.updateRide(currentRideRequestId, { status: 'no_drivers_available' }); 
+                    // The Realtime/Polling listener should pick this up and set state to noDriverFound
+                } catch (error) {
+                    console.error("[MapScreen Timeout] Error updating ride to 'no_drivers_available' on timeout:", error);
+                    // Fallback UI update if DB update fails or isn't picked up quickly
+                    setDriverSearchState('noDriverFound');
+                }
+            }
+        }, PASSENGER_REQUEST_TIMEOUT_MS);
+        console.log(`[MapScreen Timeout] Timeout of ${PASSENGER_REQUEST_TIMEOUT_MS}ms set for ride ${currentRideRequestId}.`);
+
+
         if (rideRequestChannelRef.current) {
             console.log(`[MapScreen Realtime] Removing existing channel for ride ID: ${currentRideRequestId}`);
             supabase.removeChannel(rideRequestChannelRef.current);
@@ -447,7 +442,8 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
                     console.log('[MapScreen Realtime] Parsed Updated Request:', updatedRequest);
 
                     if (driverSearchState !== 'awaiting_driver_acceptance') {
-                        console.log('[MapScreen Realtime] State no longer awaiting, ignoring stale Realtime event.');
+                        console.log('[MapScreen Realtime] State no longer awaiting, ignoring stale Realtime event. Clearing timeout.');
+                        clearPassengerRequestTimeout();
                         if (rideRequestChannelRef.current) {
                              supabase.removeChannel(rideRequestChannelRef.current);
                              rideRequestChannelRef.current = null;
@@ -457,10 +453,11 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
 
                     if (updatedRequest.status === 'accepted' && updatedRequest.driver_id) {
                         console.log('[MapScreen Realtime] CONDITION MET: Ride accepted by driver!', updatedRequest);
-                        handleDriverAssigned(updatedRequest);
-                    } else if (['cancelled_by_driver', 'no_drivers_available', 'cancelled_by_passenger'].includes(updatedRequest.status)) {
+                        handleDriverAssigned(updatedRequest); // This will also clear the timeout
+                    } else if (['cancelled_by_driver', 'no_drivers_available', 'cancelled_by_passenger', 'timed_out_passenger'].includes(updatedRequest.status)) {
                         console.log(`[MapScreen Realtime] Ride cancelled or no drivers: ${updatedRequest.status}`);
                         setDriverSearchState('noDriverFound');
+                        clearPassengerRequestTimeout();
                          if (rideRequestChannelRef.current) {
                             supabase.removeChannel(rideRequestChannelRef.current);
                             rideRequestChannelRef.current = null;
@@ -496,6 +493,7 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
         }, 3000);
 
         return () => {
+            clearPassengerRequestTimeout();
             if (rideRequestChannelRef.current) {
                 console.log(`[MapScreen Realtime Cleanup] Removing channel for ride ID: ${currentRideRequestId}`);
                 supabase.removeChannel(rideRequestChannelRef.current);
@@ -508,6 +506,7 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
             }
         };
     } else {
+         clearPassengerRequestTimeout(); // Ensure timeout is cleared if state changes away from awaiting_driver_acceptance
          if (rideRequestChannelRef.current) {
             console.log(`[MapScreen Realtime Cleanup] State not awaiting or no ride ID, removing channel. State: ${driverSearchState}`);
             supabase.removeChannel(rideRequestChannelRef.current);
@@ -519,12 +518,13 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
             pollingIntervalRef.current = null;
         }
     }
-  }, [driverSearchState, currentRideRequestId, supabase, handleDriverAssigned, pollRideRequestStatus]);
+  }, [driverSearchState, currentRideRequestId, supabase, handleDriverAssigned, pollRideRequestStatus, clearPassengerRequestTimeout]);
 
 
   const resetToInitialMapState = () => {
     setShowDriverSearchSheet(false);
     setShowTripInProgressSheet(false);
+    clearPassengerRequestTimeout();
 
     if (rideRequestChannelRef.current) {
       console.log(`[MapScreen Reset] Removing channel during reset for ride ID: ${currentRideRequestId}`);
@@ -579,14 +579,16 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
       startDriverSearchProcess(selectedServiceForSearch, confirmedOrigin, confirmedDestination, currentTripFare);
     }
   };
-  const handleCancelDriverSearch = () => {
+  const handleCancelDriverSearch = async () => {
+    clearPassengerRequestTimeout(); // Clear timeout if user manually cancels
     if (currentRideRequestId) {
         console.log(`[MapScreen Cancel Search] Cancelling ride ID: ${currentRideRequestId}`);
-        supabase.from('ride_requests').update({ status: 'cancelled_by_passenger' }).eq('id', currentRideRequestId)
-        .then(({error}) => {
-            if (error) console.error("Error cancelling request in DB:", error);
-            else console.log(`[MapScreen Cancel Search] Request ${currentRideRequestId} marked as cancelled_by_passenger`);
-        });
+        try {
+            await userService.updateRide(currentRideRequestId, { status: 'cancelled_by_passenger' });
+            console.log(`[MapScreen Cancel Search] Request ${currentRideRequestId} marked as cancelled_by_passenger`);
+        } catch (error) {
+            console.error("Error cancelling request in DB:", error);
+        }
     }
     resetToInitialMapState();
   };
@@ -670,7 +672,7 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
         </div>
         <div style={serviceTypePillContainerStyle}> {!(showDriverSearchSheet || showTripInProgressSheet) && ( <div ref={serviceDropdownRef} style={{ position: 'relative', pointerEvents: 'auto' }}> <div style={serviceTypePillStyle} onClick={toggleServiceDropdown}> {serviceFor === 'self' ? t.serviceForSelf : t.serviceForOther} <ChevronDownIcon style={{ [isRTL ? 'marginRight' : 'marginLeft']: '0.5rem', transform: isServiceDropdownOpen ? 'rotate(180deg)' : '' }} /> </div> {isServiceDropdownOpen && ( <div style={serviceDropdownStyle}> <div style={serviceDropdownItemStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemStyle.backgroundColor!} onClick={() => selectServiceType('self')}>{t.serviceForSelf}</div> <div style={serviceDropdownItemStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemStyle.backgroundColor!} onClick={() => selectServiceType('other')}>{t.serviceForOther}</div> </div> )} </div> )} </div>
         <div style={{ pointerEvents: 'auto' }}>
-            <button style={topBarButtonStyle} aria-label={t.profileButtonAriaLabel}><ProfileIcon /></button>
+            <button style={topBarButtonStyle} aria-label={t.profileButtonAriaLabel} onClick={onNavigateToProfile}><ProfileIcon /></button>
         </div>
       </div>
       <button style={gpsButtonStyle} onClick={handleGpsClick} aria-label={t.gpsButtonAriaLabel}><GpsIcon /></button>
@@ -689,14 +691,16 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
         onChangeDestination={() => console.log("Change destination clicked (Not implemented)")}
         onApplyCoupon={() => console.log("Apply coupon clicked (Not implemented)")}
         onRideOptions={() => console.log("Ride options clicked (Not implemented)")}
-        onCancelTrip={() => { 
+        onCancelTrip={async () => { 
             console.log("Cancel trip clicked");
+            clearPassengerRequestTimeout(); // Ensure timeout is cleared on manual cancel as well
             if (currentRideRequestId && currentDriverDetails?.driverId) { 
-                 supabase.from('ride_requests').update({ status: 'cancelled_by_passenger' }).eq('id', currentRideRequestId)
-                    .then(({error}) => {
-                        if (error) console.error("Error cancelling trip in DB:", error);
-                        else console.log(`Trip ${currentRideRequestId} marked as cancelled_by_passenger by passenger.`);
-                    });
+                try {
+                    await userService.updateRide(currentRideRequestId, { status: 'cancelled_by_passenger' });
+                    console.log(`Trip ${currentRideRequestId} marked as cancelled_by_passenger by passenger.`);
+                } catch (error) {
+                     console.error("Error cancelling trip in DB:", error);
+                }
             }
             resetToInitialMapState();
         }}
@@ -707,3 +711,4 @@ export const MapScreen: React.FC<MapScreenProps> = (/* Props removed */) => {
     </div>
   );
 };
+  

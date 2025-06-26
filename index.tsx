@@ -19,7 +19,7 @@ import { PhoneInputScreen } from './src/screens/PhoneInputScreen';
 import { OtpScreen } from './src/screens/OtpScreen';
 import { MapScreen } from './src/screens/MapScreen';
 import { DriverDashboardScreen } from './src/screens/DriverDashboardScreen';
-// Component imports like ServiceSelectionSheet etc. are for screens, not App's direct logic.
+import { PassengerProfileScreen } from './src/screens/PassengerProfileScreen'; // Import PassengerProfileScreen
 
 import { AppContext, AppContextType } from './src/contexts/AppContext';
 import { useAppServices } from './src/hooks/useAppServices'; // Import the service hook
@@ -65,7 +65,6 @@ const App = () => {
     htmlEl.dir = savedLang === 'en' ? 'ltr' : 'rtl';
   }, []);
 
-  // useEffect for fetchGlobalServices is removed (handled by useAppServices)
 
   const handleLangChange = (lang: Language) => {
     setCurrentLang(lang);
@@ -111,7 +110,7 @@ const App = () => {
     const styleTag = document.getElementById('global-app-styles'); 
     if (styleTag) styleTag.innerHTML = globalStyles; 
 
-    if (currentScreen === 'map' || currentScreen === 'driverDashboard') {
+    if (currentScreen === 'map' || currentScreen === 'driverDashboard' || currentScreen === 'passengerProfile') {
         document.body.classList.add('no-padding');
     } else {
         document.body.classList.remove('no-padding');
@@ -121,15 +120,18 @@ const App = () => {
   const appContextValue: AppContextType = {
     loggedInUserId,
     loggedInUserFullName,
-    userRole, // Sourced from useAuth
+    userRole, 
     currentLang,
     setCurrentLang: handleLangChange,
     t,
-    allAppServices, // Sourced from useAppServices
-    appServiceCategories, // Sourced from useAppServices
-    isLoadingServicesGlobal, // Sourced from useAppServices
-    serviceFetchErrorGlobal, // Sourced from useAppServices
+    allAppServices, 
+    appServiceCategories, 
+    isLoadingServicesGlobal, 
+    serviceFetchErrorGlobal, 
   };
+
+  const navigateToPassengerProfile = () => setCurrentScreen('passengerProfile');
+  const navigateToMap = () => setCurrentScreen('map');
 
   let screenComponent;
   switch (currentScreen) {
@@ -140,10 +142,13 @@ const App = () => {
       screenComponent = <OtpScreen currentLang={currentLang} phoneNumber={userPhoneNumber} onConfirm={handleOtpConfirmed} onResendOtp={handleResendOtp} onBack={handleBackToPhoneInput} />;
       break;
     case 'map':
-      screenComponent = <MapScreen />; // Props are sourced from context
+      screenComponent = <MapScreen onNavigateToProfile={navigateToPassengerProfile} />; 
       break;
     case 'driverDashboard':
-      screenComponent = <DriverDashboardScreen onLogout={handleLogoutFromDashboard} />; // Props (except onLogout) are sourced from context
+      screenComponent = <DriverDashboardScreen onLogout={handleLogoutFromDashboard} />; 
+      break;
+    case 'passengerProfile':
+      screenComponent = <PassengerProfileScreen onBackToMap={navigateToMap} />;
       break;
     default:
       screenComponent = <PhoneInputScreen currentLang={currentLang} onLangChange={handleLangChange} onNext={handlePhoneSubmitted} />;

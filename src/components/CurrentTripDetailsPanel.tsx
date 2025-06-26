@@ -1,4 +1,3 @@
-
 import React, { CSSProperties } from 'react';
 import { RideRequest, PassengerDetails, DriverTripPhase } from '../types';
 import { translations, Language } from '../translations';
@@ -14,6 +13,8 @@ interface CurrentTripDetailsPanelProps {
     onNavigateToPickup: () => void;
     onStartTrip: () => void;
     onEndTrip: () => void;
+    // New prop for detecting arrival at pickup
+    onArrivedAtPickup?: () => void; // Optional for now, main logic in DriverDashboardScreen
 }
 
 export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = ({
@@ -26,6 +27,7 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
     onNavigateToPickup,
     onStartTrip,
     onEndTrip,
+    onArrivedAtPickup,
 }) => {
     const t = translations[currentLang];
     const isRTL = currentLang !== 'en';
@@ -48,7 +50,7 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
         paddingBottom: 0,
     };
 
-    const sectionTitleStyle: CSSProperties = { // Kept for "Trip Actions"
+    const sectionTitleStyle: CSSProperties = { 
         fontSize: '1rem',
         fontWeight: '600',
         color: '#4A5568',
@@ -60,7 +62,7 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
         height: '70px',
         borderRadius: '50%',
         objectFit: 'cover',
-        margin: isRTL ? '0 0 0.5rem 0' : '0 0 0.5rem 0', // Center profile pic above name/phone
+        margin: isRTL ? '0 0 0.5rem 0' : '0 0 0.5rem 0', 
         backgroundColor: '#e2e8f0',
         display: 'block', 
     };
@@ -70,7 +72,6 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
         flexDirection: 'column', 
         alignItems: 'center', 
         textAlign: 'center',
-        // marginBottom: '1rem', // This margin will be handled by sectionStyle on the parent div
     };
 
     const passengerNameStyle: CSSProperties = {
@@ -126,7 +127,7 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
         fontSize: '0.9rem',
         marginBottom: '0.5rem',
         lineHeight: 1.5,
-        textAlign: isRTL ? 'right' : 'left', // Ensure address text aligns correctly
+        textAlign: isRTL ? 'right' : 'left', 
     };
     const addressLabelStyle: CSSProperties = {
         fontWeight: 500,
@@ -198,37 +199,54 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
 
 
     let actionButton = null;
-    if (currentPhase === DriverTripPhase.EN_ROUTE_TO_PICKUP) {
-        actionButton = (
-            <button style={navigateButtonStyle} onClick={onNavigateToPickup}>
-                <NavigationIcon style={buttonIconStyle} />
-                {t.navigateToPickupButtonLabel}
-            </button>
-        );
-    } else if (currentPhase === DriverTripPhase.AT_PICKUP) { 
-         actionButton = (
-            <button style={startButtonStyle} onClick={onStartTrip}>
-                {t.startTripButtonLabel}
-            </button>
-        );
-    } else if (currentPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION) {
-         actionButton = (
-            <button style={endButtonStyle} onClick={onEndTrip}>
-                {t.endTripButtonLabel}
-            </button>
-        );
+    switch (currentPhase) {
+        case DriverTripPhase.EN_ROUTE_TO_PICKUP:
+            actionButton = (
+                <button style={navigateButtonStyle} onClick={onNavigateToPickup}>
+                    <NavigationIcon style={buttonIconStyle} />
+                    {t.navigateToPickupButtonLabel}
+                </button>
+            );
+            break;
+        case DriverTripPhase.AT_PICKUP:
+            actionButton = (
+                <button style={startButtonStyle} onClick={onStartTrip}>
+                    {t.startTripButtonLabel}
+                </button>
+            );
+            break;
+        case DriverTripPhase.EN_ROUTE_TO_DESTINATION:
+             // The button text changes to "End Trip" when driver is near destination (handled by phase AT_DESTINATION)
+             // For now, EN_ROUTE_TO_DESTINATION doesn't show a primary action button here, 
+             // but could show other info or secondary actions.
+             // The logic to show "End Trip" will depend on AT_DESTINATION phase.
+            break; 
+        case DriverTripPhase.AT_DESTINATION:
+            actionButton = (
+                <button style={endButtonStyle} onClick={onEndTrip}>
+                    {t.endTripButtonLabel}
+                </button>
+            );
+            break;
+        default:
+            actionButton = null;
     }
+
+    // A separate button for "Arrived at Pickup" can be added if manual confirmation is desired
+    // For now, arrival is detected automatically in DriverDashboardScreen.
+    // If onArrivedAtPickup prop is used, this would be the place:
+    // if (currentPhase === DriverTripPhase.EN_ROUTE_TO_PICKUP && onArrivedAtPickup) {
+    //    actionButton = ( <button onClick={onArrivedAtPickup}>Arrived at Pickup</button> );
+    // }
 
 
     return (
         <div style={panelStyle}>
             <div style={sectionStyle}>
-                {/* Removed H3: {t.passengerInfoSectionTitle} */}
                 {renderPassengerInfo()}
             </div>
 
             <div style={sectionStyle}>
-                {/* Removed H3: {t.originLabel} */}
                 <p style={addressStyle}>
                     <span style={addressLabelStyle}>{t.requestFromLabel} </span> 
                     {trip.origin_address || <span style={dataMissingStyle}>{t.dataMissing}</span>}
@@ -236,7 +254,6 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
             </div>
 
             <div style={sectionStyle}>
-                {/* Removed H3: {t.destinationLabel} */}
                 <p style={addressStyle}>
                     <span style={addressLabelStyle}>{t.requestToLabel} </span>
                     {trip.destination_address || <span style={dataMissingStyle}>{t.dataMissing}</span>}

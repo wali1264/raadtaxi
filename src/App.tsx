@@ -7,6 +7,7 @@ import { PhoneInputScreen } from './screens/PhoneInputScreen';
 import { OtpScreen } from './screens/OtpScreen';
 import { MapScreen } from './screens/MapScreen';
 import { DriverDashboardScreen } from './screens/DriverDashboardScreen';
+import { PassengerProfileScreen } from './screens/PassengerProfileScreen'; // Import PassengerProfileScreen
 import { AppContext, AppContextType } from './contexts/AppContext';
 import { useAppServices } from './hooks/useAppServices';
 import { useAuth } from './hooks/useAuth'; // Import useAuth if App.tsx becomes the main App again
@@ -57,7 +58,7 @@ const App = () => {
   };
   
   useEffect(() => {
-    if (currentScreen === 'map' || currentScreen === 'driverDashboard') {
+    if (currentScreen === 'map' || currentScreen === 'driverDashboard' || currentScreen === 'passengerProfile') {
         document.body.classList.add('no-padding');
     } else {
         document.body.classList.remove('no-padding');
@@ -77,6 +78,9 @@ const App = () => {
     serviceFetchErrorGlobal,
   };
 
+  const navigateToPassengerProfile = () => setCurrentScreen('passengerProfile');
+  const navigateToMap = () => setCurrentScreen('map');
+
   let screenComponent;
   switch (currentScreen) {
     case 'phoneInput':
@@ -86,10 +90,13 @@ const App = () => {
       screenComponent = <OtpScreen currentLang={currentLang} phoneNumber={userPhoneNumber} onConfirm={handleOtpConfirmed} onResendOtp={handleResendOtp} onBack={handleBackToPhoneInput} />;
       break;
     case 'map':
-      screenComponent = <MapScreen />; 
+      screenComponent = <MapScreen onNavigateToProfile={navigateToPassengerProfile} />; 
       break;
     case 'driverDashboard':
       screenComponent = <DriverDashboardScreen onLogout={handleLogoutFromDashboard} />;
+      break;
+    case 'passengerProfile':
+      screenComponent = <PassengerProfileScreen onBackToMap={navigateToMap} />;
       break;
     default:
       screenComponent = <PhoneInputScreen currentLang={currentLang} onLangChange={handleLangChange} onNext={handlePhoneSubmitted} />;

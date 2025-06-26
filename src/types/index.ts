@@ -1,4 +1,3 @@
-
 import React, { CSSProperties } from 'react';
 import { translations } from '../translations';
 
@@ -42,7 +41,7 @@ export interface RideRequest {
   id: string;
   created_at: string;
   passenger_id: string;
-  passenger_name?: string | null; // This might be from the ride_request itself if denormalized
+  passenger_name?: string | null;
   driver_id?: string | null;
   origin_address: string;
   origin_lat: number;
@@ -52,7 +51,16 @@ export interface RideRequest {
   destination_lng: number;
   service_id: string;
   estimated_fare?: number | null;
-  status: string; // e.g., 'pending', 'accepted', 'driver_en_route_to_origin', 'trip_started', 'completed', 'cancelled'
+  status: string; // e.g., 'pending', 'accepted', 'driver_en_route_to_origin', 'driver_at_origin', 'trip_started', 'en_route_to_destination', 'driver_at_destination', 'completed', 'cancelled'
+  accepted_at?: string | null;
+  driver_arrived_at_origin_at?: string | null;
+  trip_started_at?: string | null;
+  driver_arrived_at_destination_at?: string | null;
+  completed_at?: string | null;
+  route_to_origin_polyline?: string | null;
+  route_to_destination_polyline?: string | null;
+  actual_fare?: number | null;
+  updated_at?: string | null; // Added to match Supabase auto-updates and for general use
 }
 
 export interface DriverDetails {
@@ -75,7 +83,7 @@ export interface PassengerDetails {
 export type TripPhase = 'enRouteToOrigin' | 'enRouteToDestination' | 'arrivedAtDestination' | null;
 export type TripSheetDisplayLevel = 'peek' | 'default' | 'full';
 
-export type Screen = 'phoneInput' | 'otp' | 'map' | 'driverDashboard';
+export type Screen = 'phoneInput' | 'otp' | 'map' | 'driverDashboard' | 'passengerProfile';
 
 export type DriverSearchState = 'idle' | 'searching' | 'noDriverFound' | 'driversNotified' | 'driverAssigned' | 'awaiting_driver_acceptance';
 
@@ -89,13 +97,30 @@ export interface DriverProfileData {
   plateRegion: string;
   plateNumbers: string; // e.g., "34567"
   plateTypeChar: string; // e.g., "ش"
+  alertSoundPreference?: string; // e.g., "default_notification.mp3", "chime.mp3", "custom:my_sound.mp3"
 }
+
+// PassengerProfileData can be a subset of User table fields + any specific passenger profile fields
+// For now, it will largely map to User fields directly editable by the passenger.
+export interface PassengerProfileData {
+    userId: string; // Should match loggedInUserId
+    fullName: string;
+    phoneNumber: string; // Typically read-only, fetched from user record
+    profilePicUrl?: string; // URL for the profile picture
+}
+
 
 // Specific phases for driver's journey management
 export enum DriverTripPhase {
   NONE = 'NONE', // No active trip or phase
-  EN_ROUTE_TO_PICKUP = 'EN_ROUTE_TO_PICKUP',
-  AT_PICKUP = 'AT_PICKUP', // Phase for when driver has arrived at pickup
-  EN_ROUTE_TO_DESTINATION = 'EN_ROUTE_TO_DESTINATION',
-  // TRIP_ENDED = 'TRIP_ENDED' // Handled by setting currentTrip to null
+  EN_ROUTE_TO_PICKUP = 'EN_ROUTE_TO_PICKUP', // Driver accepted, going to pickup
+  AT_PICKUP = 'AT_PICKUP', // Driver has arrived at pickup, waiting for passenger / to start trip
+  EN_ROUTE_TO_DESTINATION = 'EN_ROUTE_TO_DESTINATION', // Trip started, going to destination
+  AT_DESTINATION = 'AT_DESTINATION' // Driver has arrived at destination, waiting to end trip
 }
+
+export type PredefinedSound = {
+  id: string;
+  nameKey: keyof typeof translations.fa;
+  fileName: string; // e.g., "default_notification.mp3"
+};
