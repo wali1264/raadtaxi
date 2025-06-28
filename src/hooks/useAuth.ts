@@ -1,3 +1,4 @@
+
 import { useState, useCallback, useEffect } from 'react';
 import { translations, Language } from '../translations';
 import { Screen, UserRole } from '../types';
@@ -88,8 +89,6 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
   }, [setCurrentScreen, t, showToast]);
 
   const handlePinConfirmed = useCallback(async (pin: string) => {
-    console.log(`PIN confirmed for ${userPhoneNumber}`);
-    
     try {
       let userData;
 
@@ -110,7 +109,6 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
 
         if (createdUserData) {
           userData = createdUserData;
-          console.log("New user created:", userData);
           if (userRole === 'driver') {
             await userService.createDriverProfileEntry(createdUserData.id);
           }
@@ -136,7 +134,6 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
 
         if (existingUser && pinFromDb === pin) {
           userData = existingUser;
-          console.log("Existing user logged in:", userData);
         } else {
           showToast(t.incorrectPinError, 'error');
           return;

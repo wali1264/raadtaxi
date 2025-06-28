@@ -1,3 +1,4 @@
+
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { APP_USER_AGENT } from '../config';
 
@@ -19,7 +20,6 @@ try {
     throw new Error("Supabase client initialization failed. Check network connectivity to esm.sh or Supabase script loading.");
   }
   supabaseExport = client;
-  console.log("Supabase client initialized and appears valid.");
 } catch (e) {
   const errorMessage = e instanceof Error ? e.message : String(e);
   console.error("Critical error during Supabase client initialization:", errorMessage, e);

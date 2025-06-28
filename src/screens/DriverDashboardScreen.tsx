@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -317,7 +318,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             })
             .subscribe((status, err) => {
                 if (status === 'SUBSCRIBED') {
-                    console.log(`[DriverDashboard Realtime] Successfully subscribed to ride request table.`);
                     return;
                 }
                 if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
@@ -564,7 +564,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             reasonKey: reasonKey,
             customReason: customReason || null
         });
-        console.log(`[DriverDashboard] Cancellation report for ride ${currentTrip.id} submitted successfully.`);
         resetTripState();
     } catch (error: any) {
         console.error("Error submitting driver cancellation:", getDebugMessage(error), error);
@@ -621,7 +620,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       try {
         const activeTrip = await userService.fetchActiveDriverTrip(loggedInUserId);
         if (activeTrip) {
-          console.log("[Trip Recovery] Found active driver trip:", activeTrip);
           setCurrentTrip(activeTrip);
           
           let recoveredPhase = DriverTripPhase.NONE;

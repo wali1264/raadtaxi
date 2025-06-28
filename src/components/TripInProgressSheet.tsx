@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, CSSProperties, useCallback } from 'react';
 import { translations, Language } from '../translations';
 import { AppService, DriverDetails, TripPhase, TripSheetDisplayLevel } from '../types';
@@ -163,7 +164,7 @@ export const TripInProgressSheet: React.FC<TripInProgressSheetProps> = ({
   const [currentRating, setCurrentRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   useEffect(() => { if (tripPhase === 'arrivedAtDestination') setCurrentRating(0); }, [tripPhase]);
-  const handleRatingSubmit = () => { console.log(`Driver rated: ${currentRating} stars`); onClose(); };
+  const handleRatingSubmit = () => { onClose(); };
 
   // --- STYLES ---
   const sheetStyle: CSSProperties = { position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopLeftRadius: '1.5rem', borderTopRightRadius: '1.5rem', boxShadow: '0 -4px 20px rgba(0,0,0,0.15)', paddingBottom: 'env(safe-area-inset-bottom)', display: 'flex', flexDirection: 'column', zIndex: 1250, direction: isRTL ? 'rtl' : 'ltr', height: currentSheetHeight, transition: 'height 0.3s ease-out', touchAction: 'none' };

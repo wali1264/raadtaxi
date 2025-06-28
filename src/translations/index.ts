@@ -708,7 +708,6 @@ const enTranslations: TranslationSet = {
   phoneRegisteredAsDriverError: "This number is already registered as a driver. Please log in as a driver or register as a passenger with a different number.",
   phoneRegisteredAsPassengerError: "This number is already registered as a passenger. Please log in as a passenger or register as a driver with a different number.",
   taxiNumberLabel: "Taxi No.",
-  }
 };
 
 export const translations: Record<Language, TranslationSet> = {
