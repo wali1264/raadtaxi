@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "esbuild src/index.tsx --bundle --outfile=dist/bundle.js --platform=browser --format=esm --jsx=automatic --external:react --external:react-dom/client --external:react/jsx-runtime --external:react-dom/server --external:leaflet --external:@supabase/supabase-js && node scripts/prepare-html.js"
+    "build": "esbuild index.tsx --bundle --outfile=dist/bundle.js --platform=browser --format=esm --jsx=automatic --external:react --external:react-dom/client --external:react/jsx-runtime --external:react-dom/server --external:leaflet --external:@supabase/supabase-js && node scripts/prepare-html.js"
   },
   "devDependencies": {
     "esbuild": "^0.20.2"

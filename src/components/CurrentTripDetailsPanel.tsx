@@ -1,7 +1,7 @@
 import React, { CSSProperties } from 'react';
 import { RideRequest, PassengerDetails, DriverTripPhase } from '../types';
 import { translations, Language } from '../translations';
-import { PhoneIcon, MessageBubbleIcon, NavigationIcon, UserCircleIcon } from './icons';
+import { PhoneIcon, MessageBubbleIcon, NavigationIcon, UserCircleIcon, CancelRideIcon } from './icons';
 
 interface CurrentTripDetailsPanelProps {
     currentLang: Language;
@@ -13,8 +13,7 @@ interface CurrentTripDetailsPanelProps {
     onNavigateToPickup: () => void;
     onStartTrip: () => void;
     onEndTrip: () => void;
-    // New prop for detecting arrival at pickup
-    onArrivedAtPickup?: () => void; // Optional for now, main logic in DriverDashboardScreen
+    onCancelTrip: () => void;
 }
 
 export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = ({
@@ -27,7 +26,7 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
     onNavigateToPickup,
     onStartTrip,
     onEndTrip,
-    onArrivedAtPickup,
+    onCancelTrip,
 }) => {
     const t = translations[currentLang];
     const isRTL = currentLang !== 'en';
@@ -134,23 +133,31 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
         color: '#5f6368',
     };
 
+    const actionButtonsContainerStyle: CSSProperties = {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '0.75rem',
+    };
+
     const actionButtonStyle: CSSProperties = {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: '100%',
-        padding: '0.875rem 1rem',
-        fontSize: '1rem',
+        padding: '0.75rem 1rem',
+        fontSize: '0.9rem',
         fontWeight: '600',
         color: 'white',
         border: 'none',
         borderRadius: '0.5rem',
         cursor: 'pointer',
-        transition: 'background-color 0.2s',
+        transition: 'background-color 0.2s, opacity 0.2s',
     };
     const navigateButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#007bff' };
     const startButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#28a745' };
     const endButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#dc3545' };
+    const cancelButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#6c757d' };
+    const disabledButtonStyle: CSSProperties = { backgroundColor: '#adb5bd', cursor: 'not-allowed' };
+
     const buttonIconStyle: CSSProperties = { [isRTL ? 'marginLeft' : 'marginRight']: '0.5rem' };
     
     const loadingErrorStyle: CSSProperties = {
@@ -174,10 +181,21 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
         if (isLoadingPassenger) return <p style={loadingErrorStyle}>{t.passengerDetailsLoading}</p>;
         if (passengerFetchError) return <p style={{...loadingErrorStyle, color: 'red'}}>{passengerFetchError}</p>;
         
+        let passengerImageUrl: string | undefined;
+        if (passenger?.profilePicUrl) {
+            try {
+                const parsed = JSON.parse(passenger.profilePicUrl);
+                passengerImageUrl = parsed.url;
+            } catch (e) {
+                // Legacy data might be a plain URL
+                passengerImageUrl = passenger.profilePicUrl;
+            }
+        }
+
         return (
             <div style={passengerInfoContainerStyle}>
-                {passenger?.profilePicUrl ? (
-                    <img src={passenger.profilePicUrl} alt={t.profilePictureLabelAltText} style={profilePicStyle} />
+                {passengerImageUrl ? (
+                    <img src={passengerImageUrl} alt={t.profilePictureLabelAltText} style={profilePicStyle} />
                 ) : (
                     <UserCircleIcon style={profilePicStyle} />
                 )}
@@ -197,48 +215,9 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
         );
     };
 
-
-    let actionButton = null;
-    switch (currentPhase) {
-        case DriverTripPhase.EN_ROUTE_TO_PICKUP:
-            actionButton = (
-                <button style={navigateButtonStyle} onClick={onNavigateToPickup}>
-                    <NavigationIcon style={buttonIconStyle} />
-                    {t.navigateToPickupButtonLabel}
-                </button>
-            );
-            break;
-        case DriverTripPhase.AT_PICKUP:
-            actionButton = (
-                <button style={startButtonStyle} onClick={onStartTrip}>
-                    {t.startTripButtonLabel}
-                </button>
-            );
-            break;
-        case DriverTripPhase.EN_ROUTE_TO_DESTINATION:
-             // The button text changes to "End Trip" when driver is near destination (handled by phase AT_DESTINATION)
-             // For now, EN_ROUTE_TO_DESTINATION doesn't show a primary action button here, 
-             // but could show other info or secondary actions.
-             // The logic to show "End Trip" will depend on AT_DESTINATION phase.
-            break; 
-        case DriverTripPhase.AT_DESTINATION:
-            actionButton = (
-                <button style={endButtonStyle} onClick={onEndTrip}>
-                    {t.endTripButtonLabel}
-                </button>
-            );
-            break;
-        default:
-            actionButton = null;
-    }
-
-    // A separate button for "Arrived at Pickup" can be added if manual confirmation is desired
-    // For now, arrival is detected automatically in DriverDashboardScreen.
-    // If onArrivedAtPickup prop is used, this would be the place:
-    // if (currentPhase === DriverTripPhase.EN_ROUTE_TO_PICKUP && onArrivedAtPickup) {
-    //    actionButton = ( <button onClick={onArrivedAtPickup}>Arrived at Pickup</button> );
-    // }
-
+    const canNavigateToPickup = currentPhase === DriverTripPhase.EN_ROUTE_TO_PICKUP;
+    const canStartTrip = currentPhase === DriverTripPhase.EN_ROUTE_TO_PICKUP || currentPhase === DriverTripPhase.AT_PICKUP;
+    const isRidePhase = currentPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION;
 
     return (
         <div style={panelStyle}>
@@ -260,12 +239,25 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
                 </p>
             </div>
             
-            {actionButton && (
-                 <div style={lastSectionStyle}>
-                    <h3 style={sectionTitleStyle}>{t.tripActionsSectionTitle}</h3>
-                    {actionButton}
+            <div style={lastSectionStyle}>
+                <h3 style={sectionTitleStyle}>{t.tripActionsSectionTitle}</h3>
+                <div style={actionButtonsContainerStyle}>
+                    <button style={canNavigateToPickup ? navigateButtonStyle : {...navigateButtonStyle, ...disabledButtonStyle}} onClick={onNavigateToPickup} disabled={!canNavigateToPickup}>
+                        <NavigationIcon style={buttonIconStyle} />
+                        {t.navigateToPickupButtonLabel}
+                    </button>
+                     <button style={canStartTrip ? startButtonStyle : {...startButtonStyle, ...disabledButtonStyle}} onClick={onStartTrip} disabled={!canStartTrip}>
+                        {t.startTripButtonLabel}
+                    </button>
+                    <button style={isRidePhase ? endButtonStyle : {...endButtonStyle, ...disabledButtonStyle}} onClick={onEndTrip} disabled={!isRidePhase}>
+                        {t.endTripButtonLabel}
+                    </button>
+                     <button style={currentPhase !== DriverTripPhase.NONE ? cancelButtonStyle : {...cancelButtonStyle, ...disabledButtonStyle}} onClick={onCancelTrip} disabled={currentPhase === DriverTripPhase.NONE}>
+                        <CancelRideIcon style={buttonIconStyle} />
+                        {t.cancelRideButton}
+                    </button>
                 </div>
-            )}
+            </div>
         </div>
     );
 };

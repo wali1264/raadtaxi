@@ -6,11 +6,12 @@ import { supabase } from '../services/supabase';
 // translations and Language removed, will get t from context
 import { APP_USER_AGENT } from '../config';
 // AppService, AppServiceCategory removed, will get from context
-import { RideRequest, DriverDetails, TripPhase, TripSheetDisplayLevel, DriverSearchState, AppService } from '../types'; 
-import { debounce, getDistanceFromLatLonInKm } from '../utils/helpers';
+import { RideRequest, DriverDetails, TripPhase, TripSheetDisplayLevel, DriverSearchState, AppService, UserRole } from '../types'; 
+import { debounce, getDistanceFromLatLonInKm, getDebugMessage } from '../utils/helpers';
 import { ServiceSelectionSheet } from '../components/ServiceSelectionSheet';
 import { DriverSearchSheet } from '../components/DriverSearchSheet';
 import { TripInProgressSheet } from '../components/TripInProgressSheet';
+import { CancellationModal } from '../components/CancellationModal';
 import { LocationMarkerIcon, DestinationMarkerIcon, HomeIcon, ProfileIcon, GpsIcon, SearchIcon, BackArrowIcon, ChevronDownIcon, CloseIcon, DriverCarIcon } from '../components/icons';
 import { AppContext, useAppContext } from '../contexts/AppContext'; // Import AppContext and useAppContext
 import { userService } from '../services/userService'; // Import userService
@@ -25,7 +26,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const { 
     currentLang, 
     loggedInUserId, 
-    loggedInUserFullName, 
+    loggedInUserFullName,
+    isUserVerified,
     allAppServices, 
     appServiceCategories, 
     isLoadingServicesGlobal, 
@@ -43,6 +45,9 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [isLoadingAddress, setIsLoadingAddress] = useState(true); const [isSearching, setIsSearching] = useState<boolean>(false);
   const [searchError, setSearchError] = useState<string>('');
   const [serviceFor, setServiceFor] = useState<'self' | 'other'>('self');
+  const [thirdPartyName, setThirdPartyName] = useState('');
+  const [thirdPartyPhone, setThirdPartyPhone] = useState('');
+  const [thirdPartyFormError, setThirdPartyFormError] = useState('');
   const [isServiceDropdownOpen, setIsServiceDropdownOpen] = useState(false); const serviceDropdownRef = useRef<HTMLDivElement>(null);
 
   const [showServiceSheet, setShowServiceSheet] = useState<boolean>(false);
@@ -56,12 +61,15 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [selectedServiceForSearch, setSelectedServiceForSearch] = useState<AppService | null>(null);
   const [currentRideRequestId, setCurrentRideRequestId] = useState<string | null>(null);
   const rideRequestChannelRef = useRef<RealtimeChannel | null>(null);
+  const activeTripChannelRef = useRef<RealtimeChannel | null>(null);
   const pollingIntervalRef = useRef<number | null>(null);
   const passengerRequestTimeoutRef = useRef<number | null>(null);
 
+  const [isCancellationModalOpen, setIsCancellationModalOpen] = useState(false);
+  const [isSubmittingCancellation, setIsSubmittingCancellation] = useState(false);
 
   const [showTripInProgressSheet, setShowTripInProgressSheet] = useState<boolean>(false);
-  const [tripSheetDisplayLevel, setTripSheetDisplayLevel] = useState<TripSheetDisplayLevel>('peek');
+  const [tripSheetDisplayLevel, setTripSheetDisplayLevel] = useState<TripSheetDisplayLevel>('default');
   const [currentTripFare, setCurrentTripFare] = useState<number | null>(null);
   const [currentDriverDetails, setCurrentDriverDetails] = useState<DriverDetails | null>(null);
 
@@ -78,15 +86,41 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const debouncedUpdateAddressRef = useRef<((map: L.Map) => Promise<void>) | undefined>(undefined);
   const updateAddressFromMapCenter = useCallback(async (map: L.Map) => {
     if (showDriverSearchSheet || showTripInProgressSheet) return; setIsLoadingAddress(true); setSearchQuery(t.addressLoading); setSearchError(''); const center = map.getCenter();
-    try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${center.lat}&lon=${center.lng}&accept-language=${currentLang}&zoom=18`, { headers: { 'User-Agent': APP_USER_AGENT } }); if (!response.ok) throw new Error('Network response was not ok'); const data = await response.json(); if (data && data.display_name) { setAddress(data.display_name); setSearchQuery(data.display_name); } else { setAddress(t.addressNotFound); setSearchQuery(t.addressNotFound); } } catch (error) { console.error("Error fetching address:", error); setAddress(t.addressError); setSearchQuery(t.addressError); } finally { setIsLoadingAddress(false); }
+    try { 
+        const fetchOptions: RequestInit = {
+            method: 'GET',
+            headers: { 'User-Agent': APP_USER_AGENT },
+            mode: 'cors',
+            referrerPolicy: 'strict-origin-when-cross-origin'
+        };
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${center.lat}&lon=${center.lng}&accept-language=${currentLang}&zoom=18`, fetchOptions);
+        if (!response.ok) throw new Error('Network response was not ok'); const data = await response.json(); if (data && data.display_name) { setAddress(data.display_name); setSearchQuery(data.display_name); } else { setAddress(t.addressNotFound); setSearchQuery(t.addressNotFound); } } catch (error) { console.error("Error fetching address:", error); setAddress(t.addressError); setSearchQuery(t.addressError); } finally { setIsLoadingAddress(false); }
   }, [currentLang, t.addressLoading, t.addressNotFound, t.addressError, showDriverSearchSheet, showTripInProgressSheet, t]);
 
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim() || !mapInstanceRef.current || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet) return; setIsSearching(true); setSearchError(''); const map = mapInstanceRef.current;
-    try { const bounds = map.getBounds(); const viewbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`; const response = await fetch( `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&countrycodes=af&accept-language=${currentLang}&limit=1&viewbox=${viewbox}&bounded=1`, { headers: { 'User-Agent': APP_USER_AGENT } } ); if (!response.ok) { throw new Error(`Nominatim API error: ${response.statusText}`); } const results = await response.json(); if (results && results.length > 0) { const firstResult = results[0]; const { lat, lon } = firstResult; map.setView([parseFloat(lat), parseFloat(lon)], 16); } else { setSearchError(t.searchNoResults); } } catch (error) { console.error("Error during forward geocoding search:", error); setSearchError(t.searchApiError); } finally { setIsSearching(false); }
+    try { 
+        const bounds = map.getBounds(); const viewbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`; 
+        const fetchOptions: RequestInit = {
+            method: 'GET',
+            headers: { 'User-Agent': APP_USER_AGENT },
+            mode: 'cors',
+            referrerPolicy: 'strict-origin-when-cross-origin'
+        };
+        const response = await fetch( `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&countrycodes=af&accept-language=${currentLang}&limit=1&viewbox=${viewbox}&bounded=1`, fetchOptions ); 
+        if (!response.ok) { throw new Error(`Nominatim API error: ${response.statusText}`); } const results = await response.json(); if (results && results.length > 0) { const firstResult = results[0]; const { lat, lon } = firstResult; map.setView([parseFloat(lat), parseFloat(lon)], 16); } else { setSearchError(t.searchNoResults); } } catch (error) { console.error("Error during forward geocoding search:", error); setSearchError(t.searchApiError); } finally { setIsSearching(false); }
   }, [searchQuery, currentLang, t.searchNoResults, t.searchApiError, showServiceSheet, showDriverSearchSheet, showTripInProgressSheet, t]);
 
-  useEffect(() => { if (mapContainerRef.current && !mapInstanceRef.current) { const initialView: L.LatLngExpression = [34.5553, 69.2075]; const newMap = L.map(mapContainerRef.current, { center: initialView, zoom: 13, zoomControl: false, attributionControl: false, }); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {}).addTo(newMap); mapInstanceRef.current = newMap; setSearchQuery(t.addressLoading); } return () => { mapInstanceRef.current?.remove(); mapInstanceRef.current = null; }; }, [t.addressLoading]);
+  useEffect(() => { 
+    if (mapContainerRef.current && !mapInstanceRef.current) { 
+        const initialView: L.LatLngExpression = [32.3745, 62.1164]; 
+        const newMap = L.map(mapContainerRef.current, { center: initialView, zoom: 13, zoomControl: false, attributionControl: false, }); 
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {}).addTo(newMap); 
+        mapInstanceRef.current = newMap; 
+        setSearchQuery(t.addressLoading); 
+    } 
+    return () => { mapInstanceRef.current?.remove(); mapInstanceRef.current = null; }; 
+  }, [t.addressLoading]);
   useEffect(() => { const currentDebouncedUpdate = debounce((map: L.Map) => { return updateAddressFromMapCenter(map); }, 750); debouncedUpdateAddressRef.current = currentDebouncedUpdate; const map = mapInstanceRef.current; if (!map) return; if (!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet) { currentDebouncedUpdate(map).catch(err => console.error("Initial debounced call failed:", err)); } const handleMoveEnd = () => { if (!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet) { currentDebouncedUpdate(map).catch(err => console.error("Debounced move_end call failed:", err)); } }; map.on('moveend', handleMoveEnd); return () => { map.off('moveend', handleMoveEnd); }; }, [updateAddressFromMapCenter, showServiceSheet, showDriverSearchSheet, showTripInProgressSheet]);
   useEffect(() => { const handleClickOutside = (event: MouseEvent) => { if (serviceDropdownRef.current && !serviceDropdownRef.current.contains(event.target as Node)) { setIsServiceDropdownOpen(false); } }; document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, []);
 
@@ -202,9 +236,17 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
                         }
                     }
                 })
-                .subscribe(status => {
-                    if (status === 'SUBSCRIBED') console.log(`Subscribed to location for driver ${driverId}`);
-                    else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.error(`Subscription error for driver ${driverId}: ${status}`);
+                .subscribe((status, err) => {
+                    if (status === 'SUBSCRIBED') {
+                        console.log(`[MapScreen Realtime] Subscribed to location updates for driver ${driverId}`);
+                    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
+                        const errorDetails = err ? ` Details: ${getDebugMessage(err)}` : '';
+                        console.warn(
+                            `[MapScreen Realtime Warning] Subscription to driver location updates failed with status: ${status}.${errorDetails} ` +
+                            `This is likely due to missing RLS policies on 'driver_locations'. ` +
+                            `The driver's location on the map may not update in real-time.`
+                        );
+                    }
                 });
 
             const boundsToShowInitial: L.LatLngExpression[] = [];
@@ -249,9 +291,63 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     supabase // supabase client directly, not from context
   ]);
   
-  const handleGpsClick = () => { if (navigator.geolocation && mapInstanceRef.current && !showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet) { const map = mapInstanceRef.current; navigator.geolocation.getCurrentPosition( (position) => { const userLatLng: L.LatLngExpression = [position.coords.latitude, position.coords.longitude]; map.setView(userLatLng, 15); if (debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(map).catch(err => console.error("Debounced GPS click call failed:", err)); } }, (error: GeolocationPositionError) => { console.error("Error getting GPS location:", error); alert("Unable to retrieve your location. Please ensure location services are enabled."); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 } ); } };
-  const calculateRouteDistance = async (origin: {lat: number, lng: number}, destination: {lat: number, lng: number}) => { setIsCalculatingDistance(true); setDistanceError(null); setRouteDistanceKm(null); try { const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false`, { headers: { 'User-Agent': APP_USER_AGENT } }); if (!response.ok) { throw new Error(`OSRM API error: ${response.status} ${response.statusText}`); } const data = await response.json(); if (data.routes && data.routes.length > 0 && data.routes[0].distance) { const distanceInKm = data.routes[0].distance / 1000; setRouteDistanceKm(distanceInKm); } else { throw new Error("No route found or distance missing in OSRM response."); } } catch (error) { console.error("Error calculating route distance:", error); setDistanceError(t.priceCalculationError); } finally { setIsCalculatingDistance(false); } };
-  const handleConfirmOriginOrDestination = () => { if (isLoadingAddress || isSearching || !mapInstanceRef.current || !address || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet) return; const currentMap = mapInstanceRef.current; const center = currentMap.getCenter(); const currentValidAddress = address; if (selectionMode === 'origin') { setConfirmedOrigin({ lat: center.lat, lng: center.lng, address: currentValidAddress }); setSelectionMode('destination'); setSearchQuery(''); setAddress(''); setSearchError(''); if (debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(currentMap).catch(err => console.error("Update address for dest failed:", err)); } } else { const destDetails = { lat: center.lat, lng: center.lng, address: currentValidAddress }; setConfirmedDestination(destDetails); if(confirmedOrigin) { calculateRouteDistance( {lat: confirmedOrigin.lat, lng: confirmedOrigin.lng}, {lat: destDetails.lat, lng: destDetails.lng} ).finally(() => { setShowServiceSheet(true); }); } else { setDistanceError("Origin not confirmed."); setShowServiceSheet(true); } } };
+  const handleGpsClick = () => {
+    if (navigator.geolocation && mapInstanceRef.current && !showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet) {
+      const map = mapInstanceRef.current;
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const userLatLng: L.LatLngExpression = [position.coords.latitude, position.coords.longitude];
+          map.setView(userLatLng, 15);
+          if (debouncedUpdateAddressRef.current) {
+            debouncedUpdateAddressRef.current(map).catch(err => console.error("Debounced GPS click call failed:", getDebugMessage(err), err));
+          }
+        },
+        (error: GeolocationPositionError) => {
+          console.error("Error getting GPS location:", getDebugMessage(error), error);
+          let message = "";
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              message = t.geolocationPermissionDenied;
+              break;
+            case error.POSITION_UNAVAILABLE:
+              message = t.geolocationUnavailableHintVpnOrSignal;
+              break;
+            case error.TIMEOUT:
+              message = t.geolocationTimeout;
+              break;
+            default:
+              message = t.geolocationUnavailable;
+              break;
+          }
+          alert(message);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    }
+  };
+  const calculateRouteDistance = async (origin: {lat: number, lng: number}, destination: {lat: number, lng: number}) => { setIsCalculatingDistance(true); setDistanceError(null); setRouteDistanceKm(null); try { 
+    const fetchOptions: RequestInit = {
+        method: 'GET',
+        headers: { 'User-Agent': APP_USER_AGENT },
+        mode: 'cors',
+        referrerPolicy: 'strict-origin-when-cross-origin'
+    };
+    const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false`, fetchOptions); 
+    if (!response.ok) { throw new Error(`OSRM API error: ${response.status} ${response.statusText}`); } const data = await response.json(); if (data.routes && data.routes.length > 0 && data.routes[0].distance) { const distanceInKm = data.routes[0].distance / 1000; setRouteDistanceKm(distanceInKm); } else { throw new Error("No route found or distance missing in OSRM response."); } } catch (error) { console.error("Error calculating route distance:", error); setDistanceError(t.priceCalculationError); } finally { setIsCalculatingDistance(false); } };
+  const handleConfirmOriginOrDestination = () => { if (isLoadingAddress || isSearching || !mapInstanceRef.current || !address || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet) return; const currentMap = mapInstanceRef.current; const center = currentMap.getCenter(); const currentValidAddress = address; 
+  if (serviceFor === 'other') {
+    if (!thirdPartyName.trim()) {
+        setThirdPartyFormError(t.fullNameLabel + ' ' + (isRTL ? 'الزامی است' : 'is required'));
+        return;
+    }
+    if (!/^07[0-9]{8}$/.test(thirdPartyPhone)) {
+        setThirdPartyFormError(t.invalidPhoneError);
+        return;
+    }
+    setThirdPartyFormError('');
+  }
+  
+  if (selectionMode === 'origin') { setConfirmedOrigin({ lat: center.lat, lng: center.lng, address: currentValidAddress }); setSelectionMode('destination'); setSearchQuery(''); setAddress(''); setSearchError(''); if (debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(currentMap).catch(err => console.error("Update address for dest failed:", err)); } } else { const destDetails = { lat: center.lat, lng: center.lng, address: currentValidAddress }; setConfirmedDestination(destDetails); if(confirmedOrigin) { calculateRouteDistance( {lat: confirmedOrigin.lat, lng: confirmedOrigin.lng}, {lat: destDetails.lat, lng: destDetails.lng} ).finally(() => { setShowServiceSheet(true); }); } else { setDistanceError("Origin not confirmed."); setShowServiceSheet(true); } } };
 
   const startDriverSearchProcess = async (service: AppService, originLoc: {lat: number, lng: number, address: string}, destLoc: {lat: number, lng: number, address: string}, estimatedPrice: number | null) => {
     if (!loggedInUserId) {
@@ -261,29 +357,28 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         return;
     }
 
-    let passengerNameForRequest = loggedInUserFullName;
-    if (!passengerNameForRequest) {
-        passengerNameForRequest = t.defaultPassengerName;
-    }
+    const rideRequestPayload: Omit<RideRequest, 'id' | 'created_at' | 'updated_at'> = {
+        passenger_id: loggedInUserId,
+        passenger_name: serviceFor === 'self' ? loggedInUserFullName : thirdPartyName.trim(),
+        passenger_phone: serviceFor === 'self' ? null : thirdPartyPhone,
+        is_third_party: serviceFor === 'other',
+        origin_address: originLoc.address,
+        origin_lat: originLoc.lat,
+        origin_lng: originLoc.lng,
+        destination_address: destLoc.address,
+        destination_lat: destLoc.lat,
+        destination_lng: destLoc.lng,
+        service_id: service.id,
+        estimated_fare: estimatedPrice,
+        status: 'pending'
+    };
 
     setDriverSearchState('searching');
     setShowDriverSearchSheet(true);
     setCurrentRideRequestId(null);
 
     try {
-        const rideData = await userService.createRideRequest({
-            passenger_id: loggedInUserId,
-            passenger_name: passengerNameForRequest,
-            origin_address: originLoc.address,
-            destination_address: destLoc.address,
-            origin_lat: originLoc.lat,
-            origin_lng: originLoc.lng,
-            destination_lat: destLoc.lat,
-            destination_lng: destLoc.lng,
-            service_id: service.id,
-            estimated_fare: estimatedPrice,
-            status: 'pending'
-        });
+        const rideData = await userService.createRideRequest(rideRequestPayload);
         
         console.log('Ride request created:', rideData);
         setCurrentRideRequestId(rideData.id);
@@ -320,38 +415,120 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     }
   }, []);
   
-  const handleDriverAssigned = useCallback((updatedRequest: RideRequest) => {
-    console.log('[MapScreen handleDriverAssigned] Triggered for request:', updatedRequest);
-    clearPassengerRequestTimeout(); // Clear timeout as driver is assigned
-    const driverServiceId = selectedServiceForSearch?.id || 'car'; 
-    
-    const assignedDriverDetails: DriverDetails = {
-        name: updatedRequest.driver_id ? `${t.roleDriver} ${updatedRequest.driver_id.substring(0,6)}` : t.roleDriver,
-        serviceId: driverServiceId,
-        vehicleColor: t.defaultServiceName, 
-        plateParts: { region: "N/A", numbers: "00000", type: "-" }, 
-        profilePicUrl: undefined, 
-        driverId: updatedRequest.driver_id
-    };
-    setCurrentDriverDetails(assignedDriverDetails);
+  const resetToInitialMapState = useCallback(() => {
+    setShowDriverSearchSheet(false);
+    setShowTripInProgressSheet(false);
+    clearPassengerRequestTimeout();
 
+    if (rideRequestChannelRef.current) {
+      console.log(`[MapScreen Reset] Removing channel during reset for ride ID: ${currentRideRequestId}`);
+      supabase.removeChannel(rideRequestChannelRef.current);
+      rideRequestChannelRef.current = null;
+    }
+     if (activeTripChannelRef.current) {
+        console.log(`[MapScreen Reset] Removing active trip channel during reset for ride ID: ${currentRideRequestId}`);
+        supabase.removeChannel(activeTripChannelRef.current);
+        activeTripChannelRef.current = null;
+    }
+    if (pollingIntervalRef.current) {
+        console.log(`[MapScreen Reset] Clearing polling interval for ride ID: ${currentRideRequestId}`);
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+    }
+    
+    setDriverSearchState('idle');
+    setNotifiedDriverCount(0);
+    setSelectionMode('origin');
+    setConfirmedOrigin(null);
+    setConfirmedDestination(null);
+    setSearchQuery(''); setAddress(''); setRouteDistanceKm(null);
+    setIsCalculatingDistance(false); setDistanceError(null);
+    setSelectedServiceForSearch(null); setCurrentTripFare(null);
+    setTripSheetDisplayLevel('default');
+    setTripPhase(null);
+    setEstimatedTimeToDestination(null);
+    setCurrentRideRequestId(null);
+    setCurrentDriverDetails(null);
+
+    const map = mapInstanceRef.current;
+    if (map) { // Origin and Destination markers are handled by their own useEffect now.
+      // Driver marker is handled by its dedicated useEffect's cleanup.
+    }
+
+    if (mapInstanceRef.current && debouncedUpdateAddressRef.current) {
+        debouncedUpdateAddressRef.current(mapInstanceRef.current)
+            .catch(err => console.error("Update address for new origin failed:", err));
+    }
+  }, [supabase, clearPassengerRequestTimeout, currentRideRequestId]);
+
+  const handleDriverAssigned = useCallback(async (updatedRequest: RideRequest) => {
+    console.log('[MapScreen handleDriverAssigned] Triggered for request:', updatedRequest);
+    clearPassengerRequestTimeout();
+
+    try {
+        if (!updatedRequest.driver_id) {
+            throw new Error("Driver ID is missing in the accepted request payload.");
+        }
+        
+        const fullDriverProfile = await userService.fetchDriverProfile(updatedRequest.driver_id);
+        
+        let profilePicUrl = '';
+        if (fullDriverProfile.profilePicUrl) {
+            try {
+                const parsed = JSON.parse(fullDriverProfile.profilePicUrl);
+                profilePicUrl = parsed.url || '';
+            } catch (e) {
+                profilePicUrl = fullDriverProfile.profilePicUrl;
+            }
+        }
+        
+        const assignedDriverDetails: DriverDetails = {
+            name: fullDriverProfile.fullName || `${t.roleDriver} ${updatedRequest.driver_id.substring(0, 6)}`,
+            serviceId: selectedServiceForSearch?.id || 'car',
+            vehicleModel: fullDriverProfile.vehicleModel || t.dataMissing,
+            vehicleColor: fullDriverProfile.vehicleColor || t.dataMissing,
+            plateParts: { 
+                region: fullDriverProfile.plateRegion || "N/A", 
+                numbers: fullDriverProfile.plateNumbers || t.dataMissing, 
+                type: fullDriverProfile.plateTypeChar || "-"
+            }, 
+            profilePicUrl: profilePicUrl,
+            driverId: updatedRequest.driver_id,
+            phoneNumber: fullDriverProfile.phoneNumber || t.dataMissing,
+        };
+        
+        setCurrentDriverDetails(assignedDriverDetails);
+
+    } catch (error) {
+        console.error("Error fetching full driver details. Falling back to placeholder.", getDebugMessage(error));
+        const assignedDriverDetails: DriverDetails = {
+            name: updatedRequest.driver_id ? `${t.roleDriver} ${updatedRequest.driver_id.substring(0,6)}` : t.roleDriver,
+            serviceId: selectedServiceForSearch?.id || 'car',
+            vehicleModel: t.dataMissing,
+            vehicleColor: t.defaultServiceName, 
+            plateParts: { region: "N/A", numbers: t.dataMissing, type: "-" }, 
+            profilePicUrl: undefined, 
+            driverId: updatedRequest.driver_id,
+            phoneNumber: t.dataMissing,
+        };
+        setCurrentDriverDetails(assignedDriverDetails);
+    }
+    
     setDriverSearchState('driverAssigned');
     setShowDriverSearchSheet(false);
     setShowTripInProgressSheet(true);
     setTripPhase('enRouteToOrigin'); 
-    setTripSheetDisplayLevel('peek');
+    setTripSheetDisplayLevel('default');
 
     if (rideRequestChannelRef.current) {
-        console.log(`[MapScreen handleDriverAssigned] Removing Realtime channel for ride ID: ${currentRideRequestId}`);
         supabase.removeChannel(rideRequestChannelRef.current);
         rideRequestChannelRef.current = null;
     }
     if (pollingIntervalRef.current) {
-        console.log(`[MapScreen handleDriverAssigned] Clearing polling interval for ride ID: ${currentRideRequestId}`);
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
     }
-  }, [selectedServiceForSearch, t.roleDriver, currentRideRequestId, supabase, t.defaultServiceName, t, clearPassengerRequestTimeout]);
+  }, [selectedServiceForSearch, t, supabase, clearPassengerRequestTimeout, currentRideRequestId]);
 
 
   const pollRideRequestStatus = useCallback(async (rideRequestId: string) => {
@@ -472,15 +649,20 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
                 }
             )
             .subscribe((status, err) => {
-                console.log(`[MapScreen Realtime] Subscription status for ${currentRideRequestId}:`, status);
                 if (status === 'SUBSCRIBED') {
                     console.log(`[MapScreen Realtime] Successfully subscribed to updates for ride request ID: ${currentRideRequestId}`);
+                    return;
                 }
-                if (status === 'CHANNEL_ERROR' || err) {
-                    console.error('[MapScreen Realtime] Subscription Error for ride request:', err || 'Channel Error', `Ride ID: ${currentRideRequestId}`);
-                }
-                if (status === 'TIMED_OUT') {
-                     console.warn('[MapScreen Realtime] Subscription Timed Out for ride request:', currentRideRequestId);
+
+                if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
+                    const errorDetails = err ? ` Details: ${getDebugMessage(err)}` : '';
+                    console.warn(
+                        `[MapScreen Realtime Warning] Subscription to ride request updates failed with status: ${status}.${errorDetails} ` +
+                        `This is likely due to missing Row-Level Security (RLS) policies on the 'ride_requests' table. ` +
+                        `The application will gracefully fall back to its polling mechanism to check for updates.`
+                    );
+                } else {
+                    console.log(`[MapScreen Realtime] Subscription status for ${currentRideRequestId}:`, status);
                 }
             });
 
@@ -521,46 +703,130 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   }, [driverSearchState, currentRideRequestId, supabase, handleDriverAssigned, pollRideRequestStatus, clearPassengerRequestTimeout]);
 
 
-  const resetToInitialMapState = () => {
-    setShowDriverSearchSheet(false);
-    setShowTripInProgressSheet(false);
-    clearPassengerRequestTimeout();
-
-    if (rideRequestChannelRef.current) {
-      console.log(`[MapScreen Reset] Removing channel during reset for ride ID: ${currentRideRequestId}`);
-      supabase.removeChannel(rideRequestChannelRef.current);
-      rideRequestChannelRef.current = null;
-    }
-    if (pollingIntervalRef.current) {
-        console.log(`[MapScreen Reset] Clearing polling interval for ride ID: ${currentRideRequestId}`);
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-    }
-    
-    setDriverSearchState('idle');
-    setNotifiedDriverCount(0);
-    setSelectionMode('origin');
-    setConfirmedOrigin(null);
-    setConfirmedDestination(null);
-    setSearchQuery(''); setAddress(''); setRouteDistanceKm(null);
-    setIsCalculatingDistance(false); setDistanceError(null);
-    setSelectedServiceForSearch(null); setCurrentTripFare(null);
-    setTripSheetDisplayLevel('peek');
-    setTripPhase(null);
-    setEstimatedTimeToDestination(null);
-    setCurrentRideRequestId(null);
-    setCurrentDriverDetails(null);
-
-    const map = mapInstanceRef.current;
-    if (map) { // Origin and Destination markers are handled by their own useEffect now.
-      // Driver marker is handled by its dedicated useEffect's cleanup.
+  useEffect(() => {
+    if (showTripInProgressSheet && currentRideRequestId) {
+        if (activeTripChannelRef.current) {
+            supabase.removeChannel(activeTripChannelRef.current);
+        }
+        activeTripChannelRef.current = supabase
+            .channel(`active_trip_updates_${currentRideRequestId}`)
+            .on('postgres_changes', {
+                event: 'UPDATE', schema: 'public', table: 'ride_requests', filter: `id=eq.${currentRideRequestId}`
+            }, (payload) => {
+                const updatedTrip = payload.new as RideRequest;
+                if (updatedTrip.status === 'cancelled_by_driver') {
+                    alert(t.tripCancelledByDriver);
+                    resetToInitialMapState();
+                } else if (updatedTrip.status === 'trip_started') {
+                    setTripPhase('enRouteToDestination');
+                } else if (updatedTrip.status === 'completed') {
+                    setTripPhase('arrivedAtDestination');
+                }
+            })
+            .subscribe((status, err) => {
+                if (status !== 'SUBSCRIBED') {
+                    console.warn(`[MapScreen ActiveTrip] Could not subscribe to active trip updates for ${currentRideRequestId}. Status: ${status}`, err);
+                } else {
+                    console.log(`[MapScreen ActiveTrip] Subscribed to updates for active trip ${currentRideRequestId}.`)
+                }
+            });
     }
 
-    if (mapInstanceRef.current && debouncedUpdateAddressRef.current) {
-        debouncedUpdateAddressRef.current(mapInstanceRef.current)
-            .catch(err => console.error("Update address for new origin failed:", err));
+    return () => {
+        if (activeTripChannelRef.current) {
+            supabase.removeChannel(activeTripChannelRef.current);
+            activeTripChannelRef.current = null;
+        }
+    };
+  }, [showTripInProgressSheet, currentRideRequestId, supabase, t.tripCancelledByDriver, resetToInitialMapState]);
+
+
+  // Trip recovery effect
+  useEffect(() => {
+    const recoverTrip = async () => {
+      // Don't run if user not logged in or a trip/search is already active in the UI
+      if (!loggedInUserId || showTripInProgressSheet || showDriverSearchSheet || currentRideRequestId) {
+        return;
+      }
+      
+      try {
+        const activeTrip = await userService.fetchActivePassengerTrip(loggedInUserId);
+
+        // Ensure we found a trip and it has a driver assigned.
+        if (activeTrip && activeTrip.driver_id) {
+          console.log("[Trip Recovery] Found active passenger trip:", activeTrip);
+
+          // 1. Restore trip data to state
+          setConfirmedOrigin({ lat: activeTrip.origin_lat, lng: activeTrip.origin_lng, address: activeTrip.origin_address });
+          setConfirmedDestination({ lat: activeTrip.destination_lat, lng: activeTrip.destination_lng, address: activeTrip.destination_address });
+          setCurrentRideRequestId(activeTrip.id);
+          setCurrentTripFare(activeTrip.estimated_fare || null);
+
+          // 2. Fetch driver details and set UI state
+          try {
+              const fullDriverProfile = await userService.fetchDriverProfile(activeTrip.driver_id);
+              let profilePicUrl = '';
+              if (fullDriverProfile.profilePicUrl) {
+                  try {
+                      const parsed = JSON.parse(fullDriverProfile.profilePicUrl);
+                      profilePicUrl = parsed.url || '';
+                  } catch (e) {
+                      profilePicUrl = fullDriverProfile.profilePicUrl;
+                  }
+              }
+
+              const serviceForTrip = allAppServices.find(s => s.id === activeTrip.service_id);
+              if (serviceForTrip) setSelectedServiceForSearch(serviceForTrip);
+              
+              const recoveredDriverDetails: DriverDetails = {
+                  name: fullDriverProfile.fullName || `${t.roleDriver} ${activeTrip.driver_id.substring(0, 6)}`,
+                  serviceId: serviceForTrip?.id || 'car',
+                  vehicleModel: fullDriverProfile.vehicleModel || t.dataMissing,
+                  vehicleColor: fullDriverProfile.vehicleColor || t.dataMissing,
+                  plateParts: { region: fullDriverProfile.plateRegion || "N/A", numbers: fullDriverProfile.plateNumbers || t.dataMissing, type: fullDriverProfile.plateTypeChar || "-" },
+                  profilePicUrl: profilePicUrl,
+                  driverId: activeTrip.driver_id,
+                  phoneNumber: fullDriverProfile.phoneNumber || t.dataMissing,
+              };
+              setCurrentDriverDetails(recoveredDriverDetails);
+
+          } catch (error) {
+              console.error("[Trip Recovery] Error fetching driver details:", getDebugMessage(error));
+              setCurrentDriverDetails({
+                  name: activeTrip.driver_id ? `${t.roleDriver} ${activeTrip.driver_id.substring(0,6)}` : t.roleDriver,
+                  serviceId: 'car', vehicleModel: t.dataMissing, vehicleColor: t.dataMissing,
+                  plateParts: { region: "N/A", numbers: t.dataMissing, type: "-" },
+                  driverId: activeTrip.driver_id, phoneNumber: t.dataMissing,
+              });
+          }
+          
+          // 3. Set UI state to show trip progress
+          setShowDriverSearchSheet(false);
+          setShowTripInProgressSheet(true);
+          setTripSheetDisplayLevel('default');
+
+          // 4. Determine and set the correct trip phase from the recovered trip status
+          let recoveredTripPhase: TripPhase = 'enRouteToOrigin';
+          switch (activeTrip.status) {
+            case 'trip_started':
+              recoveredTripPhase = 'enRouteToDestination'; break;
+            case 'driver_at_destination':
+            case 'completed':
+              recoveredTripPhase = 'arrivedAtDestination'; break;
+          }
+          setTripPhase(recoveredTripPhase);
+        }
+      } catch (error) {
+        console.error("[Trip Recovery] Error recovering passenger trip:", getDebugMessage(error));
+      }
+    };
+
+    if (loggedInUserId && allAppServices.length > 0) {
+        recoverTrip();
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedInUserId, allAppServices]);
+
 
   const handleRequestRideFromSheet = (service: AppService, originAddressText: string, destinationAddressText: string, estimatedPrice: number | null) => {
     setShowServiceSheet(false);
@@ -592,10 +858,55 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     }
     resetToInitialMapState();
   };
+
+  const handleCancellationSubmit = async (reasonKey: string, customReason: string) => {
+      if (!currentRideRequestId || !loggedInUserId) {
+          alert(t.errorCancellingTrip + " (Missing IDs)");
+          return;
+      }
+      setIsSubmittingCancellation(true);
+      try {
+          await userService.updateRide(currentRideRequestId, { status: 'cancelled_by_passenger' });
+          await userService.submitCancellationReport({
+              rideId: currentRideRequestId,
+              userId: loggedInUserId,
+              role: 'passenger',
+              reasonKey: reasonKey,
+              customReason: customReason || null
+          });
+          console.log(`[MapScreen] Cancellation report for ride ${currentRideRequestId} submitted successfully.`);
+          resetToInitialMapState();
+      } catch (error: any) {
+          console.error("Error submitting cancellation:", getDebugMessage(error), error);
+          alert(t.errorSubmittingCancellation + `\n\n${getDebugMessage(error)}`);
+          resetToInitialMapState();
+      } finally {
+          setIsCancellationModalOpen(false);
+          setIsSubmittingCancellation(false);
+      }
+  };
+  
+  const handleOpenCancellationModal = () => {
+      if (currentRideRequestId) {
+          setIsCancellationModalOpen(true);
+      } else {
+          console.warn("Attempted to open cancellation modal without a current ride request ID.");
+          resetToInitialMapState();
+      }
+  };
+
   const handleGoBackToOriginSelection = () => { setSelectionMode('origin'); setSearchError(''); setShowServiceSheet(false); setRouteDistanceKm(null); setIsCalculatingDistance(false); setDistanceError(null); if (confirmedOrigin) { setAddress(confirmedOrigin.address); setSearchQuery(confirmedOrigin.address); if (mapInstanceRef.current) { mapInstanceRef.current.setView([confirmedOrigin.lat, confirmedOrigin.lng]); } } else if (mapInstanceRef.current && debouncedUpdateAddressRef.current) { setAddress(''); setSearchQuery(''); debouncedUpdateAddressRef.current(mapInstanceRef.current).catch(err => console.error("Update address on back failed:", err)); } };
   const handleCloseServiceSheet = () => { setShowServiceSheet(false); if (confirmedDestination && mapInstanceRef.current) { mapInstanceRef.current.setView([confirmedDestination.lat, confirmedDestination.lng]); setAddress(confirmedDestination.address); setSearchQuery(confirmedDestination.address); setSelectionMode('destination'); setIsLoadingAddress(false); setSearchError(''); } };
   const toggleServiceDropdown = () => setIsServiceDropdownOpen(!isServiceDropdownOpen);
-  const selectServiceType = (type: 'self' | 'other') => { setServiceFor(type); setIsServiceDropdownOpen(false); };
+  const selectServiceType = (type: 'self' | 'other') => { 
+    setServiceFor(type); 
+    setIsServiceDropdownOpen(false); 
+    if (type === 'self') {
+        setThirdPartyName('');
+        setThirdPartyPhone('');
+        setThirdPartyFormError('');
+    }
+  };
 
   const mapScreenContainerStyle: CSSProperties = { width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', backgroundColor: '#e0e0e0' };
   const leafletMapContainerStyle: CSSProperties = { width: '100%', height: '100%' };
@@ -611,11 +922,11 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     if (showServiceSheet) return 'calc(70vh + 1rem)';
     if (showDriverSearchSheet) return 'calc(250px + 1rem)';
     if (showTripInProgressSheet) {
-        if (tripSheetDisplayLevel === 'peek') return 'calc(180px + 1rem)';
-        if (tripSheetDisplayLevel === 'default') return 'calc(320px + 1rem)';
-        return 'calc(85vh + 1rem)';
+        if (tripSheetDisplayLevel === 'peek') return 'calc(80px + 1rem)';
+        if (tripSheetDisplayLevel === 'default') return 'calc(310px + 1rem)';
+        return 'calc(75vh + 1rem)';
     }
-    return '13rem';
+    return '18rem'; // Adjusted to make space for third party form
   };
   const gpsButtonVisibilityLogic = (showServiceSheet || showDriverSearchSheet || (showTripInProgressSheet && tripSheetDisplayLevel === 'full')) ? 'hidden' : 'visible';
 
@@ -635,24 +946,34 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
 
   const bottomPanelStyle: CSSProperties = { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'white', padding: '1rem 1.5rem 1.5rem', borderTopLeftRadius: '1rem', borderTopRightRadius: '1rem', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)', zIndex: 1000, display: 'flex', flexDirection: 'column', transform: (showServiceSheet || showDriverSearchSheet || showTripInProgressSheet) ? 'translateY(100%)' : 'translateY(0)', visibility: (showServiceSheet || showDriverSearchSheet || showTripInProgressSheet) ? 'hidden' : 'visible', transition: 'transform 0.3s ease-out, visibility 0.3s ease-out' };
   const addressInputContainerStyle: CSSProperties = { display: 'flex', alignItems: 'center', backgroundColor: '#f0f0f0', borderRadius: '0.5rem', padding: isRTL ? '0.75rem 1rem 0.75rem 0.5rem' : '0.75rem 0.5rem 0.75rem 1rem', marginBottom: '0.5rem' };
-  const addressPointStyle: CSSProperties = { width: '10px', height: '10px', backgroundColor: selectionMode === 'origin' ? '#FFD700' : '#000000', borderRadius: selectionMode === 'origin' ? '50%' : '2px', [isRTL ? 'marginLeft' : 'marginRight']: '0.75rem', flexShrink: 0 };
+  const addressPointStyle: CSSProperties = { width: '10px', height: '10px', backgroundColor: selectionMode === 'origin' ? '#007bff' : '#28a745', borderRadius: selectionMode === 'origin' ? '50%' : '2px', [isRTL ? 'marginLeft' : 'marginRight']: '0.75rem', flexShrink: 0 };
   const addressInputStyle: CSSProperties = { flexGrow: 1, fontSize: '0.9rem', color: '#333', textAlign: isRTL ? 'right' : 'left', backgroundColor: 'transparent', border: 'none', outline: 'none', padding: '0 0.5rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', };
   const searchButtonStyle: CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', flexShrink: 0, [isRTL ? 'marginRight' : 'marginLeft'] : '0.5rem' }; const searchButtonDisabledStyle: CSSProperties = { opacity: 0.5, cursor: 'not-allowed' };
   const searchErrorStyle: CSSProperties = { fontSize: '0.75rem', color: 'red', textAlign: 'center', minHeight: '1.2em', marginBottom: '0.5rem' };
+  const verificationWarningStyle: CSSProperties = {
+    fontSize: '0.8rem',
+    color: '#D97706', // Amber color
+    textAlign: 'center',
+    marginBottom: '0.5rem',
+    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+    padding: '0.4rem',
+    borderRadius: '0.25rem',
+  };
   const confirmMainButtonStyle: CSSProperties = { width: '100%', backgroundColor: selectionMode === 'destination' ? '#28a745' : '#007bff', color: 'white', border: 'none', padding: '0.875rem', borderRadius: '0.5rem', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', transition: 'background-color 0.2s' };
   if (selectionMode === 'destination') { confirmMainButtonStyle.backgroundColor = '#28a745'; }
   const confirmMainButtonHoverStyle: CSSProperties = { backgroundColor: selectionMode === 'destination' ? '#218838' : '#0056b3' };
   if (selectionMode === 'destination') { confirmMainButtonHoverStyle.backgroundColor = '#218838'; }
+  const isThirdPartyFormInvalid = serviceFor === 'other' && (!thirdPartyName.trim() || !/^07[0-9]{8}$/.test(thirdPartyPhone));
   const confirmMainButtonDisabledStyle: CSSProperties = { backgroundColor: '#a5d6a7', cursor: 'not-allowed' };
   const [isConfirmMainButtonHovered, setIsConfirmMainButtonHovered] = useState(false);
   let currentConfirmMainButtonStyle = confirmMainButtonStyle;
-  if (isLoadingAddress || isSearching || !address) { currentConfirmMainButtonStyle = {...currentConfirmMainButtonStyle, ...confirmMainButtonDisabledStyle}; } else if (isConfirmMainButtonHovered) { currentConfirmMainButtonStyle = {...currentConfirmMainButtonStyle, ...confirmMainButtonHoverStyle}; }
+  if (isLoadingAddress || isSearching || !address || isThirdPartyFormInvalid || !isUserVerified) { currentConfirmMainButtonStyle = {...currentConfirmMainButtonStyle, ...confirmMainButtonDisabledStyle}; } else if (isConfirmMainButtonHovered) { currentConfirmMainButtonStyle = {...currentConfirmMainButtonStyle, ...confirmMainButtonHoverStyle}; }
 
   const handleToggleTripSheetDisplay = () => {
     setTripSheetDisplayLevel(prevLevel => {
         if (prevLevel === 'peek') return 'default';
         if (prevLevel === 'default') return 'full';
-        if (prevLevel === 'full') return 'peek';
+        if (prevLevel === 'full') return 'default';
         return 'default';
     });
   };
@@ -662,8 +983,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
       <div ref={mapContainerRef} style={leafletMapContainerStyle} />
       <div ref={fixedMarkerRef} style={fixedMarkerStyle} aria-live="polite" aria-atomic="true">
         {selectionMode === 'origin' ?
-          <LocationMarkerIcon color="#FFD700" ariaLabel={t.originMarkerAriaLabel} /> :
-          <DestinationMarkerIcon color="#000000" ariaLabel={t.destinationMarkerAriaLabel} />
+          <LocationMarkerIcon ariaLabel={t.originMarkerAriaLabel} /> :
+          <DestinationMarkerIcon ariaLabel={t.destinationMarkerAriaLabel} />
         }
       </div>
       <div style={topControlsContainerStyle}>
@@ -677,38 +998,61 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
       </div>
       <button style={gpsButtonStyle} onClick={handleGpsClick} aria-label={t.gpsButtonAriaLabel}><GpsIcon /></button>
       <div style={bottomPanelStyle}>
+        {serviceFor === 'other' && (
+            <div style={{ marginBottom: '0.5rem', borderBottom: '1px solid #e0e0e0', paddingBottom: '1rem' }}>
+                <input 
+                    type="text" 
+                    placeholder={t.passengerNameLabel} 
+                    value={thirdPartyName}
+                    onChange={(e) => {
+                        setThirdPartyName(e.target.value);
+                        if (thirdPartyFormError) setThirdPartyFormError('');
+                    }}
+                    style={{...addressInputStyle, width: '100%', boxSizing: 'border-box', marginBottom: '0.75rem', backgroundColor: '#fff', border: '1px solid #ddd', padding: '0.75rem'}}
+                />
+                <input 
+                    type="tel" 
+                    placeholder={t.passengerPhoneLabel} 
+                    value={thirdPartyPhone}
+                    onChange={(e) => {
+                        const value = e.target.value.replace(/[^0-9]/g, '');
+                        setThirdPartyPhone(value);
+                        if (thirdPartyFormError) setThirdPartyFormError('');
+                    }}
+                    style={{...addressInputStyle, width: '100%', boxSizing: 'border-box', backgroundColor: '#fff', border: '1px solid #ddd', padding: '0.75rem'}}
+                    maxLength={10}
+                    dir="ltr"
+                />
+            </div>
+        )}
         <div style={addressInputContainerStyle}> <div style={addressPointStyle} /> <input type="text" style={addressInputStyle} value={isLoadingAddress ? t.addressLoading : (isSearching ? t.searchingAddress : searchQuery)} onChange={(e) => { setSearchQuery(e.target.value); if (searchError) setSearchError(''); }} onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }} placeholder={selectionMode === 'origin' ? t.searchPlaceholderOrigin : t.searchPlaceholderDestination} readOnly={isLoadingAddress || isSearching} aria-label={t.searchAddressLabel} dir={isRTL ? 'rtl': 'ltr'} /> <button onClick={handleSearch} style={ (isSearching || isLoadingAddress || !searchQuery.trim()) ? {...searchButtonStyle, ...searchButtonDisabledStyle} : searchButtonStyle } disabled={isSearching || isLoadingAddress || !searchQuery.trim()} aria-label={t.searchIconAriaLabel} > <SearchIcon /> </button> </div>
-        {searchError ? <p style={searchErrorStyle} role="alert">{searchError}</p> : <div style={{...searchErrorStyle, visibility: 'hidden'}}>Placeholder</div> }
-        <button style={currentConfirmMainButtonStyle} onMouseEnter={() => setIsConfirmMainButtonHovered(true)} onMouseLeave={() => setIsConfirmMainButtonHovered(false)} onClick={handleConfirmOriginOrDestination} disabled={isLoadingAddress || isSearching || !address} > {selectionMode === 'origin' ? t.confirmOriginButton : t.confirmDestinationButton} </button>
+        {searchError || thirdPartyFormError ? <p style={searchErrorStyle} role="alert">{searchError || thirdPartyFormError}</p> : <div style={{...searchErrorStyle, visibility: 'hidden'}}>Placeholder</div> }
+        {!isUserVerified && <p style={verificationWarningStyle}>{t.accountNotVerifiedWarning}</p>}
+        <button style={currentConfirmMainButtonStyle} onMouseEnter={() => setIsConfirmMainButtonHovered(true)} onMouseLeave={() => setIsConfirmMainButtonHovered(false)} onClick={handleConfirmOriginOrDestination} disabled={isLoadingAddress || isSearching || !address || isThirdPartyFormInvalid || !isUserVerified} > {selectionMode === 'origin' ? t.confirmOriginButton : t.confirmDestinationButton} </button>
       </div>
       {showServiceSheet && confirmedOrigin && confirmedDestination && ( <ServiceSelectionSheet currentLang={currentLang} originAddress={confirmedOrigin.address} destinationAddress={confirmedDestination.address} routeDistanceKm={routeDistanceKm} isCalculatingDistance={isCalculatingDistance} distanceError={distanceError} onClose={handleCloseServiceSheet} onRequestRide={handleRequestRideFromSheet} serviceCategories={appServiceCategories} isLoadingServices={isLoadingServicesGlobal} serviceFetchError={serviceFetchErrorGlobal} /> )}
       {showDriverSearchSheet && selectedServiceForSearch && ( <DriverSearchSheet currentLang={currentLang} searchState={driverSearchState} notifiedDriverCount={notifiedDriverCount} onRetry={handleRetryDriverSearch} onCancel={handleCancelDriverSearch} onClose={handleCancelDriverSearch} selectedServiceName={t[selectedServiceForSearch.nameKey] || selectedServiceForSearch.id} /> )}
       {showTripInProgressSheet && currentDriverDetails && ( <TripInProgressSheet currentLang={currentLang} driverDetails={currentDriverDetails} tripFare={currentTripFare}
         tripPhase={tripPhase} estimatedTimeToDestination={estimatedTimeToDestination}
-        displayLevel={tripSheetDisplayLevel} onToggleDisplayLevel={handleToggleTripSheetDisplay}
-        onCallDriver={() => console.log("Call driver clicked")} onMessageDriver={() => console.log("Message driver clicked")}
-        onPayment={() => console.log("Payment clicked")}
+        displayLevel={tripSheetDisplayLevel} onSetDisplayLevel={setTripSheetDisplayLevel}
         onChangeDestination={() => console.log("Change destination clicked (Not implemented)")}
         onApplyCoupon={() => console.log("Apply coupon clicked (Not implemented)")}
         onRideOptions={() => console.log("Ride options clicked (Not implemented)")}
-        onCancelTrip={async () => { 
-            console.log("Cancel trip clicked");
-            clearPassengerRequestTimeout(); // Ensure timeout is cleared on manual cancel as well
-            if (currentRideRequestId && currentDriverDetails?.driverId) { 
-                try {
-                    await userService.updateRide(currentRideRequestId, { status: 'cancelled_by_passenger' });
-                    console.log(`Trip ${currentRideRequestId} marked as cancelled_by_passenger by passenger.`);
-                } catch (error) {
-                     console.error("Error cancelling trip in DB:", error);
-                }
-            }
-            resetToInitialMapState();
-        }}
+        onCancelTrip={handleOpenCancellationModal}
         onSafety={() => console.log("Safety clicked (Not implemented)")}
         onClose={resetToInitialMapState}
         appServices={allAppServices} />
       )}
+      {isCancellationModalOpen && (
+          <CancellationModal
+              isOpen={isCancellationModalOpen}
+              onClose={() => setIsCancellationModalOpen(false)}
+              onSubmit={handleCancellationSubmit}
+              userRole={'passenger'}
+              currentLang={currentLang}
+              isSubmitting={isSubmittingCancellation}
+          />
+      )}
     </div>
   );
 };
-  

@@ -42,6 +42,8 @@ export interface RideRequest {
   created_at: string;
   passenger_id: string;
   passenger_name?: string | null;
+  passenger_phone?: string | null;
+  is_third_party?: boolean;
   driver_id?: string | null;
   origin_address: string;
   origin_lat: number;
@@ -51,7 +53,7 @@ export interface RideRequest {
   destination_lng: number;
   service_id: string;
   estimated_fare?: number | null;
-  status: string; // e.g., 'pending', 'accepted', 'driver_en_route_to_origin', 'driver_at_origin', 'trip_started', 'en_route_to_destination', 'driver_at_destination', 'completed', 'cancelled'
+  status: string; // e.g., 'pending', 'accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination', 'completed', 'cancelled', 'cancelled_by_driver', 'cancelled_by_passenger', 'timed_out_passenger'
   accepted_at?: string | null;
   driver_arrived_at_origin_at?: string | null;
   trip_started_at?: string | null;
@@ -66,10 +68,12 @@ export interface RideRequest {
 export interface DriverDetails {
   name: string;
   serviceId: string;
+  vehicleModel: string;
   vehicleColor: string;
   plateParts: { region: string; numbers: string; type: string };
   profilePicUrl?: string;
   driverId?: string;
+  phoneNumber?: string;
 }
 
 // For passenger details specifically in driver dashboard
@@ -80,10 +84,10 @@ export interface PassengerDetails {
   profilePicUrl?: string | null;
 }
 
-export type TripPhase = 'enRouteToOrigin' | 'enRouteToDestination' | 'arrivedAtDestination' | null;
+export type TripPhase = 'enRouteToOrigin' | 'enRouteToDestination' | 'arrivedAtDestination' | 'emergency' | null;
 export type TripSheetDisplayLevel = 'peek' | 'default' | 'full';
 
-export type Screen = 'phoneInput' | 'otp' | 'map' | 'driverDashboard' | 'passengerProfile';
+export type Screen = 'phoneInput' | 'pin' | 'map' | 'driverDashboard' | 'passengerProfile' | 'pendingApproval';
 
 export type DriverSearchState = 'idle' | 'searching' | 'noDriverFound' | 'driversNotified' | 'driverAssigned' | 'awaiting_driver_acceptance';
 
@@ -124,3 +128,12 @@ export type PredefinedSound = {
   nameKey: keyof typeof translations.fa;
   fileName: string; // e.g., "default_notification.mp3"
 };
+
+// Data shape for restoring a user session from storage
+export interface UserSessionData {
+    userId: string;
+    fullName: string | null;
+    phoneNumber: string | null;
+    role: UserRole;
+    isVerified: boolean;
+}

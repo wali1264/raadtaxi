@@ -1,12 +1,15 @@
 import { supabase } from './supabase';
-import { UserRole, Language, DriverProfileData, PassengerDetails, RideRequest } from '../types';
+import { UserRole, Language, DriverProfileData, PassengerDetails, RideRequest, UserSessionData } from '../types';
 import { getDebugMessage } from '../utils/helpers'; 
+
+const DEFAULT_SOUND_URL = 'https://actions.google.com/sounds/v1/notifications/card_dismiss.ogg';
+const BUCKET_NAME = 'profile-pictures';
 
 export const userService = {
   async fetchUserByPhoneNumber(phoneNumber: string) {
     const { data, error } = await supabase
       .from('users')
-      .select('id, full_name, role, profile_pic_url') 
+      .select('id, full_name, role, profile_pic_url, is_verified') 
       .eq('phone_number', phoneNumber)
       .single();
     if (error && error.code !== 'PGRST116') { 
@@ -16,7 +19,7 @@ export const userService = {
     return data;
   },
 
-  async createUser(details: { phoneNumber: string, role: UserRole, fullName: string, currentLang: Language }) {
+  async createUser(details: { phoneNumber: string, role: UserRole, fullName: string, currentLang: Language, pin: string }) {
     const { data, error } = await supabase
       .from('users')
       .insert({
@@ -24,8 +27,9 @@ export const userService = {
         role: details.role,
         full_name: details.fullName,
         current_language: details.currentLang,
+        profile_pic_url: JSON.stringify({ pin: details.pin, url: '' }),
       })
-      .select('id, full_name, role, profile_pic_url') 
+      .select('id, full_name, role, profile_pic_url, is_verified') 
       .single();
     if (error) {
       console.error("UserService: Error creating user -", getDebugMessage(error), error);
@@ -37,15 +41,13 @@ export const userService = {
   async updateUser(userId: string, updates: { role?: UserRole, full_name?: string, profile_pic_url?: string | null }) {
     const updatePayload: any = { ...updates, updated_at: new Date().toISOString() };
     
-    if (updates.profile_pic_url === '') { // Handle empty string to mean null for DB
-        updatePayload.profile_pic_url = null;
-    }
+    // No longer need to handle empty string specifically as profile_pic_url is a JSON string now
 
     const { data, error } = await supabase
       .from('users')
       .update(updatePayload)
       .eq('id', userId)
-      .select('id, full_name, role, profile_pic_url') 
+      .select('id, full_name, role, profile_pic_url, is_verified') 
       .single();
     if (error) {
       console.error("UserService: Error updating user -", getDebugMessage(error), error);
@@ -53,11 +55,58 @@ export const userService = {
     }
     return data;
   },
+  
+  async uploadProfilePicture(userId: string, file: File): Promise<string> {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}.${fileExt}`;
+    const filePath = `${userId}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .upload(filePath, file);
+
+    if (uploadError) {
+      console.error("UserService: Error uploading profile picture -", getDebugMessage(uploadError), uploadError);
+      throw uploadError;
+    }
+
+    const { data } = supabase.storage
+      .from(BUCKET_NAME)
+      .getPublicUrl(filePath);
+      
+    if (!data || !data.publicUrl) {
+      throw new Error("Could not get public URL for uploaded file.");
+    }
+
+    return data.publicUrl;
+  },
+
+  async deleteProfilePicture(oldPicUrl: string): Promise<void> {
+    if (!oldPicUrl || !oldPicUrl.includes(BUCKET_NAME)) {
+      return; // Not a valid storage URL, nothing to delete
+    }
+    try {
+      const url = new URL(oldPicUrl);
+      const pathSegments = url.pathname.split('/');
+      const bucketIndex = pathSegments.findIndex(segment => segment === BUCKET_NAME);
+      if (bucketIndex > -1) {
+        const filePath = pathSegments.slice(bucketIndex + 1).join('/');
+        const { error: deleteError } = await supabase.storage
+          .from(BUCKET_NAME)
+          .remove([filePath]);
+        if (deleteError) {
+          console.warn("UserService: Could not delete old profile picture -", getDebugMessage(deleteError), deleteError);
+        }
+      }
+    } catch (e) {
+      console.error("UserService: Invalid URL provided for deletion -", getDebugMessage(e), e);
+    }
+  },
 
   async createDriverProfileEntry(userId: string) {
     const { error } = await supabase
       .from('drivers_profile')
-      .insert({ user_id: userId, current_status: 'offline', alert_sound_preference: 'default_notification.mp3' }); // Set default sound
+      .insert({ user_id: userId, current_status: 'offline', alert_sound_preference: DEFAULT_SOUND_URL }); // Set default sound
     if (error) {
       console.error("UserService: Error creating driver profile entry -", getDebugMessage(error), error);
       throw error;
@@ -77,7 +126,6 @@ export const userService = {
         throw userError;
     }
     
-    // Do not select profile_pic_url from drivers_profile
     const { data: driverProfileData, error: driverProfileError } = await supabase
         .from('drivers_profile')
         .select('vehicle_model, vehicle_color, plate_region, plate_numbers, plate_type_char, alert_sound_preference')
@@ -93,13 +141,13 @@ export const userService = {
         userId: userId,
         fullName: userData?.full_name || '',
         phoneNumber: userData?.phone_number || '',
-        profilePicUrl: userData?.profile_pic_url || '', // Use profile_pic_url from userData
+        profilePicUrl: userData?.profile_pic_url || '', // Pass the raw JSON string
         vehicleModel: driverProfileData?.vehicle_model || '',
         vehicleColor: driverProfileData?.vehicle_color || '',
         plateRegion: driverProfileData?.plate_region || '',
         plateNumbers: driverProfileData?.plate_numbers || '',
         plateTypeChar: driverProfileData?.plate_type_char || '',
-        alertSoundPreference: driverProfileData?.alert_sound_preference || 'default_notification.mp3',
+        alertSoundPreference: driverProfileData?.alert_sound_preference || DEFAULT_SOUND_URL,
     };
   },
 
@@ -113,7 +161,7 @@ export const userService = {
       }
       
       if (profileData.profilePicUrl !== undefined) {
-          userUpdates.profile_pic_url = profileData.profilePicUrl === '' ? null : profileData.profilePicUrl;
+          userUpdates.profile_pic_url = profileData.profilePicUrl; // This will now be a JSON string
           userNeedsUpdate = true;
       }
 
@@ -127,13 +175,11 @@ export const userService = {
               throw userUpdateError;
           }
       }
-
-      // Prepare updates for drivers_profile table, excluding fullName and profilePicUrl
+      
       const driverProfileDbUpdates: any = {
           user_id: userId, 
           updated_at: new Date().toISOString(),
       };
-      // profile_pic_url is NOT updated in drivers_profile
       if (profileData.vehicleModel !== undefined) driverProfileDbUpdates.vehicle_model = profileData.vehicleModel;
       if (profileData.vehicleColor !== undefined) driverProfileDbUpdates.vehicle_color = profileData.vehicleColor;
       if (profileData.plateRegion !== undefined) driverProfileDbUpdates.plate_region = profileData.plateRegion;
@@ -157,14 +203,24 @@ export const userService = {
   },
 
   async updateDriverOnlineStatus(userId: string, isOnline: boolean) {
-    const { error } = await supabase
+    const status = isOnline ? 'online' : 'offline';
+    const { data, error } = await supabase
       .from('drivers_profile')
-      .update({ current_status: isOnline ? 'online' : 'offline', updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
+      .update({ current_status: status, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .select('user_id'); // Select a column to confirm a row was updated
+
     if (error) {
       console.error("UserService: Error updating driver online status -", getDebugMessage(error), error);
       throw error;
     }
+
+    if (!data || data.length === 0) {
+      const notFoundError = new Error("Driver profile not found. Cannot update status.");
+      console.error("UserService:", notFoundError.message, `(userId: ${userId})`);
+      throw notFoundError;
+    }
+    
     return true;
   },
 
@@ -188,7 +244,32 @@ export const userService = {
         id: data.id,
         fullName: data.full_name,
         phoneNumber: data.phone_number,
-        profilePicUrl: data.profile_pic_url,
+        profilePicUrl: data.profile_pic_url, // Pass raw JSON string
+    };
+  },
+
+  async fetchUserSessionData(userId: string): Promise<UserSessionData | null> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, full_name, phone_number, role, is_verified')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+        if (error.code === 'PGRST116') { // Not found
+            return null;
+        }
+        console.error("UserService: Error fetching user session data -", getDebugMessage(error), error);
+        throw error;
+    }
+    if (!data) return null;
+
+    return {
+        userId: data.id,
+        fullName: data.full_name,
+        phoneNumber: data.phone_number,
+        role: data.role as UserRole,
+        isVerified: data.is_verified,
     };
   },
 
@@ -234,5 +315,58 @@ export const userService = {
         throw error;
     }
     return data as RideRequest;
-  }
+  },
+
+  async submitCancellationReport(details: { rideId: string, userId: string, role: UserRole, reasonKey: string, customReason: string | null }) {
+    const { rideId, userId, role, reasonKey, customReason } = details;
+    const { error } = await supabase
+      .from('ride_cancellations')
+      .insert({
+        ride_request_id: rideId,
+        cancelled_by_user_id: userId,
+        canceller_role: role,
+        reason_key: reasonKey,
+        custom_reason: customReason,
+      });
+
+    if (error) {
+      console.error("UserService: Error submitting cancellation report -", getDebugMessage(error), error);
+      // We don't throw here to not block the UI flow, as cancelling the ride is more critical.
+    }
+    return !error;
+  },
+
+  async fetchActivePassengerTrip(passengerId: string): Promise<RideRequest | null> {
+    const { data, error } = await supabase
+        .from('ride_requests')
+        .select('*')
+        .eq('passenger_id', passengerId)
+        .in('status', ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination', 'completed'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+    
+    if (error && error.code !== 'PGRST116') { // PGRST116 is "No rows found"
+        console.error("UserService: Error fetching active passenger trip -", getDebugMessage(error), error);
+        throw error;
+    }
+    return data;
+  },
+
+  async fetchActiveDriverTrip(driverId: string): Promise<RideRequest | null> {
+    const { data, error } = await supabase
+      .from('ride_requests')
+      .select('*')
+      .eq('driver_id', driverId)
+      .in('status', ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination'])
+      .order('accepted_at', { ascending: false }) // Order by when it was accepted
+      .limit(1)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+        console.error("UserService: Error fetching active driver trip -", getDebugMessage(error), error);
+        throw error;
+    }
+    return data;
+  },
 };

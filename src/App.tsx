@@ -1,13 +1,14 @@
-
 import React, { useState, useEffect } from 'react';
 // supabase client and DbService are used by hooks, not directly here.
 import { translations, Language } from './translations';
 import { Screen, UserRole, AppService, AppServiceCategory } from './types'; // Removed DbService
 import { PhoneInputScreen } from './screens/PhoneInputScreen';
-import { OtpScreen } from './screens/OtpScreen';
+import { PinScreen } from './screens/OtpScreen'; // Renamed to PinScreen but keeping file path for now
 import { MapScreen } from './screens/MapScreen';
 import { DriverDashboardScreen } from './screens/DriverDashboardScreen';
 import { PassengerProfileScreen } from './screens/PassengerProfileScreen'; // Import PassengerProfileScreen
+import { PendingApprovalScreen } from './screens/PendingApprovalScreen'; // Import new screen
+import { Toast } from './components/Toast'; // Import the new Toast component
 import { AppContext, AppContextType } from './contexts/AppContext';
 import { useAppServices } from './hooks/useAppServices';
 import { useAuth } from './hooks/useAuth'; // Import useAuth if App.tsx becomes the main App again
@@ -18,19 +19,26 @@ import { useAuth } from './hooks/useAuth'; // Import useAuth if App.tsx becomes 
 const App = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>('phoneInput');
   const [currentLang, setCurrentLang] = useState<Language>('fa');
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' | 'info' } | null>(null);
   const t = translations[currentLang];
+  
+  const showToast = (message: string, type: 'error' | 'success' | 'info' = 'info') => {
+    setToast({ message, type });
+  };
 
   const {
+    isInitializing, // from useAuth
     userPhoneNumber, // from useAuth
     userRole,        // from useAuth
     loggedInUserId,  // from useAuth
     loggedInUserFullName, // from useAuth
+    isUserVerified, // from useAuth
+    pinMode, // from useAuth
     handlePhoneSubmitted, // from useAuth
-    handleOtpConfirmed,   // from useAuth
-    handleResendOtp,      // from useAuth
+    handlePinConfirmed,   // from useAuth
     handleBackToPhoneInput, // from useAuth
     handleLogoutFromDashboard // from useAuth
-  } = useAuth(currentLang, setCurrentScreen);
+  } = useAuth(currentLang, setCurrentScreen, showToast);
 
   const { 
     allAppServices, 
@@ -65,10 +73,48 @@ const App = () => {
     }
   }, [currentScreen]);
 
+  if (isInitializing) {
+    const loadingContainerStyle: React.CSSProperties = {
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '100vh',
+      backgroundColor: '#f0f2f5',
+      color: '#4A5568',
+      fontFamily: 'system-ui, sans-serif'
+    };
+    const spinnerStyle: React.CSSProperties = {
+      border: '4px solid #E2E8F0',
+      borderTop: '4px solid #4299E1',
+      borderRadius: '50%',
+      width: '40px',
+      height: '40px',
+      animation: 'spin 1s linear infinite',
+      marginBottom: '1rem'
+    };
+    const keyframes = `
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `;
+    return (
+      <>
+        <style>{keyframes}</style>
+        <div style={loadingContainerStyle}>
+          <div style={spinnerStyle}></div>
+          <p>Initializing Session...</p>
+        </div>
+      </>
+    );
+  }
+
   const appContextValue: AppContextType = {
     loggedInUserId,
     loggedInUserFullName,
     userRole,
+    isUserVerified,
     currentLang,
     setCurrentLang: handleLangChange,
     t,
@@ -86,8 +132,8 @@ const App = () => {
     case 'phoneInput':
       screenComponent = <PhoneInputScreen currentLang={currentLang} onLangChange={handleLangChange} onNext={handlePhoneSubmitted} />;
       break;
-    case 'otp':
-      screenComponent = <OtpScreen currentLang={currentLang} phoneNumber={userPhoneNumber} onConfirm={handleOtpConfirmed} onResendOtp={handleResendOtp} onBack={handleBackToPhoneInput} />;
+    case 'pin':
+      screenComponent = <PinScreen currentLang={currentLang} phoneNumber={userPhoneNumber} mode={pinMode} onConfirm={handlePinConfirmed} onBack={handleBackToPhoneInput} />;
       break;
     case 'map':
       screenComponent = <MapScreen onNavigateToProfile={navigateToPassengerProfile} />; 
@@ -96,7 +142,10 @@ const App = () => {
       screenComponent = <DriverDashboardScreen onLogout={handleLogoutFromDashboard} />;
       break;
     case 'passengerProfile':
-      screenComponent = <PassengerProfileScreen onBackToMap={navigateToMap} />;
+      screenComponent = <PassengerProfileScreen onBackToMap={navigateToMap} onLogout={handleLogoutFromDashboard} />;
+      break;
+    case 'pendingApproval':
+      screenComponent = <PendingApprovalScreen onLogout={handleLogoutFromDashboard} />;
       break;
     default:
       screenComponent = <PhoneInputScreen currentLang={currentLang} onLangChange={handleLangChange} onNext={handlePhoneSubmitted} />;
@@ -105,6 +154,7 @@ const App = () => {
 
   return (
     <AppContext.Provider value={appContextValue}>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {screenComponent}
     </AppContext.Provider>
   );

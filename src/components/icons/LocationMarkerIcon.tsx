@@ -1,9 +1,27 @@
-
 import React, { CSSProperties } from 'react';
 
 export const LocationMarkerIcon = ({ style, ariaLabel, color = "#007bff" }: { style?: CSSProperties, ariaLabel?: string, color?: string }) => (
-  <svg style={{ width: '2.5rem', height: '2.5rem', ...style }} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={ariaLabel}>
-    <path fillRule="evenodd" clipRule="evenodd" d="M16 3C10.48 3 6 7.48 6 13C6 22 16 31 16 31C16 31 26 22 26 13C26 7.48 21.52 3 16 3ZM16 17.5C13.51 17.5 11.5 15.49 11.5 13C11.5 10.51 13.51 8.5 16 8.5C18.49 8.5 20.5 10.51 20.5 13C20.5 15.49 18.49 17.5 16 17.5Z" fill={color}/>
-    <circle cx="16" cy="13" r="4.5" fill="#FFFFFF"/>
+  <svg 
+    style={{ width: '2.5rem', height: '3.5rem', ...style }}
+    viewBox="0 0 32 42"
+    fill="none" 
+    xmlns="http://www.w3.org/2000/svg" 
+    role="img" 
+    aria-label={ariaLabel}
+  >
+    {/* Pin */}
+    <line x1="16" y1="30" x2="16" y2="42" stroke="#4A5568" strokeWidth="2.5" />
+    
+    {/* Main Icon Body with a drop shadow for depth */}
+    <g style={{ filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.2))' }}>
+      {/* Outer white border for contrast */}
+      <circle cx="16" cy="16" r="14.5" fill="white" />
+      
+      {/* Main colored circle */}
+      <circle cx="16" cy="16" r="14" fill={color} />
+
+      {/* Inner white circle (hole) */}
+      <circle cx="16" cy="16" r="6" fill="white" />
+    </g>
   </svg>
 );

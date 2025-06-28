@@ -177,7 +177,7 @@ export const NewRideRequestPopup: React.FC<NewRideRequestPopupProps> = ({
                  <div style={detailItemStyle}>
                     <span style={detailLabelStyle}>{t.requestFareLabel}:</span>
                     <span style={fareValueStyle}>
-                      {t.earningsAmountUnit.replace('{amount}', (request.estimated_fare ?? 0).toLocaleString(isRTL ? 'fa-IR' : 'en-US'))}
+                      {t.earningsAmountUnit.replace('{amount}', Math.round(request.estimated_fare ?? 0).toLocaleString(isRTL ? 'fa-IR' : 'en-US'))}
                     </span>
                 </div>
                 {/* Distance to Pickup removed */}

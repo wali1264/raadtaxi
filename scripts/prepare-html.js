@@ -1,3 +1,4 @@
+
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -13,7 +14,7 @@ try {
   // Copy index.html and update script path
   let htmlContent = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf-8');
   htmlContent = htmlContent.replace(
-    '<script type="module" src="/src/index.tsx"></script>',
+    '<script type="module" src="/index.tsx"></script>',
     '<script type="module" src="/bundle.js"></script>'
   );
   fs.writeFileSync(path.join(distDir, 'index.html'), htmlContent);

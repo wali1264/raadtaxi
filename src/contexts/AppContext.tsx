@@ -1,15 +1,15 @@
-
 import React, { createContext, useContext } from 'react';
 import { Language, UserRole, AppService, AppServiceCategory } from '../types'; // Adjusted to use types from src/types
-import { translations } from '../translations'; // Corrected import path for translations
+import { TranslationSet } from '../translations'; // Corrected import path for translations
 
 export interface AppContextType {
   loggedInUserId: string | null;
   loggedInUserFullName: string | null;
   userRole: UserRole;
+  isUserVerified: boolean;
   currentLang: Language;
   setCurrentLang: (lang: Language) => void;
-  t: typeof translations.fa; // Base translation type
+  t: TranslationSet; // Base translation type
   allAppServices: AppService[];
   appServiceCategories: AppServiceCategory[];
   isLoadingServicesGlobal: boolean;

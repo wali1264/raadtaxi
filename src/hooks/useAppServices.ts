@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, CSSProperties } from 'react';
 import { supabase } from '../services/supabase';
 import { translations, Language } from '../translations';
@@ -13,6 +12,13 @@ const serviceImageMap: Record<string, React.FC<{ style?: CSSProperties }>> = {
   'cargoRickshaw': MotorcycleRickshawIcon,
   // Add other mappings as needed
 };
+
+const hardcodedRatesPerKm: Record<string, number> = {
+    'rickshaw': 10,
+    'car': 15,
+    'cargoRickshaw': 15,
+};
+
 
 export const useAppServices = (currentLang: Language) => {
   const [appServiceCategories, setAppServiceCategories] = useState<AppServiceCategory[]>([]);
@@ -49,22 +55,28 @@ export const useAppServices = (currentLang: Language) => {
         const imageComponent = serviceImageMap[dbService.image_identifier] || DefaultServiceIcon;
         const nameKey = dbService.name_key as keyof typeof t;
         const descKey = dbService.description_key as keyof typeof t;
+        
+        const pricePerKm = hardcodedRatesPerKm[dbService.image_identifier];
 
-        const appService: AppService = {
-          id: dbService.id,
-          nameKey: t[nameKey] ? nameKey : 'defaultServiceName' as keyof typeof t,
-          descKey: t[descKey] ? descKey : 'defaultServiceDesc' as keyof typeof t,
-          price: dbService.base_fare ?? undefined,
-          pricePerKm: dbService.price_per_km ?? undefined,
-          imageComponent: imageComponent,
-          category: dbService.category,
-        };
-        tempAllServices.push(appService);
+        // Only process services that have a hardcoded rate
+        if (pricePerKm !== undefined) {
+            const appService: AppService = {
+              id: dbService.id,
+              nameKey: t[nameKey] ? nameKey : 'defaultServiceName' as keyof typeof t,
+              descKey: t[descKey] ? descKey : 'defaultServiceDesc' as keyof typeof t,
+              price: undefined, // Per user request, no base fare
+              pricePerKm: pricePerKm, // Use hardcoded rate
+              imageComponent: imageComponent,
+              category: dbService.category,
+            };
+            
+            tempAllServices.push(appService);
 
-        if (!categoriesMap[dbService.category]) {
-          categoriesMap[dbService.category] = [];
+            if (!categoriesMap[dbService.category]) {
+              categoriesMap[dbService.category] = [];
+            }
+            categoriesMap[dbService.category].push(appService);
         }
-        categoriesMap[dbService.category].push(appService);
       });
       
       setAllAppServices(tempAllServices);

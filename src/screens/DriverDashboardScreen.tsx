@@ -1,14 +1,14 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
 import { supabase } from '../services/supabase';
 import { RealtimeChannel, PostgrestError } from '@supabase/supabase-js';
-import { RideRequest, AppService, PassengerDetails, DriverTripPhase, DriverProfileData } from '../types'; 
+import { RideRequest, AppService, PassengerDetails, DriverTripPhase, DriverProfileData, UserRole } from '../types'; 
 import { NewRideRequestPopup } from '../components/NewRideRequestPopup';
 import { DrawerPanel } from '../components/DrawerPanel';
 import { DriverProfileModal } from '../components/DriverProfileModal';
 import { CurrentTripDetailsPanel } from '../components/CurrentTripDetailsPanel'; 
+import { CancellationModal } from '../components/CancellationModal';
 import { ListIcon, CarIcon, GpsIcon, LocationMarkerIcon, DestinationMarkerIcon, ProfileIcon, DriverCarIcon } from '../components/icons';
 import { AppContext, useAppContext } from '../contexts/AppContext';
 import { userService } from '../services/userService';
@@ -27,6 +27,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const { 
     currentLang, 
     loggedInUserId, 
+    isUserVerified,
     allAppServices, 
     t 
   } = useAppContext();
@@ -49,6 +50,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const [isLoadingPassengerDetails, setIsLoadingPassengerDetails] = useState<boolean>(false);
   const [passengerDetailsError, setPassengerDetailsError] = useState<string | null>(null);
   const [currentTripPhase, setCurrentTripPhase] = useState<DriverTripPhase>(DriverTripPhase.NONE);
+  const [actualTripStartCoords, setActualTripStartCoords] = useState<{ lat: number; lng: number } | null>(null);
   
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const tripOriginMarkerRef = useRef<L.Marker | null>(null);
@@ -60,6 +62,8 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const [acceptingRequestId, setAcceptingRequestId] = useState<string | null>(null);
   const [isAcceptButtonHovered, setIsAcceptButtonHovered] = useState<{[key: string]: boolean}>({});
 
+  const [isCancellationModalOpen, setIsCancellationModalOpen] = useState(false);
+  const [isSubmittingCancellation, setIsSubmittingCancellation] = useState(false);
 
   const [showIncomingDrawer, setShowIncomingDrawer] = useState(false);
   const [showCurrentTripDrawer, setShowCurrentTripDrawer] = useState(false);
@@ -73,12 +77,21 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
   const playNotificationSound = useCallback(() => {
     if (audioPlayerRef.current) {
-        let soundFile = driverProfile.alertSoundPreference || 'default_notification.mp3';
+        const defaultSoundUrl = 'https://actions.google.com/sounds/v1/notifications/card_dismiss.ogg';
+        let soundFile = driverProfile.alertSoundPreference || defaultSoundUrl;
+
         if (soundFile.startsWith('custom:')) {
             console.warn(`Custom sound selected (${soundFile}), playing default as custom file playback is not supported in this simulation.`);
-            soundFile = 'default_notification.mp3'; 
+            soundFile = defaultSoundUrl;
         }
-        audioPlayerRef.current.src = `/assets/sounds/${soundFile.split('/').pop()}`; // Ensure only filename is used
+
+        if (soundFile.startsWith('http')) {
+            audioPlayerRef.current.src = soundFile;
+        } else {
+            // Fallback for legacy local file names that might be in the database
+            audioPlayerRef.current.src = `/assets/sounds/${soundFile.split('/').pop()}`;
+        }
+        
         audioPlayerRef.current.play().catch(e => console.error("Error playing sound:", e));
     }
   }, [driverProfile.alertSoundPreference]);
@@ -110,14 +123,19 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     clearMapTripElements();
     setShowCurrentTripDrawer(false); 
     setIsNavigating(false);
+    setActualTripStartCoords(null);
   }, [clearMapTripElements]);
 
   const fetchOsrmRoute = async (startCoords: L.LatLngTuple, endCoords: L.LatLngTuple): Promise<L.LatLngExpression[] | null> => {
     setIsNavigating(true);
     try {
-        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${startCoords[1]},${startCoords[0]};${endCoords[1]},${endCoords[0]}?overview=full&geometries=geojson`, {
-            headers: { 'User-Agent': APP_USER_AGENT }
-        });
+        const fetchOptions: RequestInit = {
+            method: 'GET',
+            headers: { 'User-Agent': APP_USER_AGENT },
+            mode: 'cors',
+            referrerPolicy: 'strict-origin-when-cross-origin'
+        };
+        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${startCoords[1]},${startCoords[0]};${endCoords[1]},${endCoords[0]}?overview=full&geometries=geojson`, fetchOptions);
         if (!response.ok) {
             console.error("OSRM API error:", response.status, response.statusText);
             throw new Error(`OSRM API error: ${response.status}`);
@@ -153,7 +171,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
   useEffect(() => {
     if (mapContainerRef.current && !mapInstanceRef.current) {
-        const initialView: L.LatLngExpression = [34.5553, 69.2075]; 
+        const initialView: L.LatLngExpression = [32.3745, 62.1164]; 
         const newMap = L.map(mapContainerRef.current, {
             center: initialView, zoom: 13, zoomControl: false, attributionControl: false,
         });
@@ -197,7 +215,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             map.setView(driverLatLng, map.getZoom() < 15 ? 15: map.getZoom() );
         }
     };
-    navigator.geolocation.getCurrentPosition(initialLocationListener, (err) => console.warn("Error getting initial GPS for marker:", err), { enableHighAccuracy: true });
+    navigator.geolocation.getCurrentPosition(initialLocationListener, (err) => console.warn("Error getting initial GPS for marker:", getDebugMessage(err), err), { enableHighAccuracy: true });
   }, [isOnline, loggedInUserId, currentTripPhase]);
 
   useEffect(() => {
@@ -214,23 +232,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             if (actualDriverGpsMarker.current) {
                 actualDriverGpsMarker.current.setLatLng([latitude, longitude]);
             }
-            
-            if (currentTrip) {
-                if (currentTripPhase === DriverTripPhase.EN_ROUTE_TO_PICKUP) {
-                    const distToPickup = getDistanceFromLatLonInKm(latitude, longitude, currentTrip.origin_lat, currentTrip.origin_lng);
-                    if (distToPickup < PROXIMITY_THRESHOLD_KM) {
-                        setCurrentTripPhase(DriverTripPhase.AT_PICKUP);
-                        await userService.updateRide(currentTrip.id, { status: 'driver_at_origin', driver_arrived_at_origin_at: new Date().toISOString() });
-                    }
-                } else if (currentTripPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION) {
-                    const distToDest = getDistanceFromLatLonInKm(latitude, longitude, currentTrip.destination_lat, currentTrip.destination_lng);
-                    if (distToDest < PROXIMITY_THRESHOLD_KM) {
-                        setCurrentTripPhase(DriverTripPhase.AT_DESTINATION);
-                        await userService.updateRide(currentTrip.id, { status: 'driver_at_destination', driver_arrived_at_destination_at: new Date().toISOString() });
-                    }
-                }
-            }
-
           } catch (e) { console.error('[DriverDashboard] Exception during driver location processing:', getDebugMessage(e), e); }
         },
         (error) => {
@@ -243,30 +244,36 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       if (locationWatchIdRef.current !== null) { navigator.geolocation.clearWatch(locationWatchIdRef.current); locationWatchIdRef.current = null; }
     }
     return () => { if (locationWatchIdRef.current !== null) navigator.geolocation.clearWatch(locationWatchIdRef.current); };
-  }, [isOnline, loggedInUserId, t.geolocationPermissionDenied, currentTrip, currentTripPhase, supabase]);
+  }, [isOnline, loggedInUserId, t.geolocationPermissionDenied, supabase]);
 
 
   const fetchAllPendingRequests = useCallback(async () => {
-    if (!isOnline) { setAllPendingRequests([]); setIsLoadingAllPending(false); return; }
+    if (currentTrip) { setAllPendingRequests([]); setIsLoadingAllPending(false); return; }
+    if (!isOnline || !isUserVerified) { setAllPendingRequests([]); setIsLoadingAllPending(false); return; }
     setIsLoadingAllPending(true); setFetchError(null);
     try {
       const { data, error } = await supabase.from('ride_requests').select('*').eq('status', 'pending').is('driver_id', null); 
       if (error) { console.error('[DriverDashboard] Error fetching all pending requests:', getDebugMessage(error), error); setFetchError(t.errorFetchingRequests); setAllPendingRequests([]); }
-      else { setAllPendingRequests(data as RideRequest[]); }
+      else { 
+          const nonDeclinedRequests = (data as RideRequest[]).filter(
+              req => !timedOutOrDeclinedRequests.some(declined => declined.id === req.id)
+          );
+          setAllPendingRequests(nonDeclinedRequests);
+      }
     } catch (e) { console.error('[DriverDashboard] Exception during fetchAllPendingRequests:', getDebugMessage(e), e); setFetchError(t.errorFetchingRequests); setAllPendingRequests([]); }
     finally { setIsLoadingAllPending(false); }
-  },[t.errorFetchingRequests, isOnline, supabase]);
+  },[t.errorFetchingRequests, isOnline, isUserVerified, supabase, currentTrip, timedOutOrDeclinedRequests]);
 
   useEffect(() => {
-    if (isOnline && !requestInPopup && allPendingRequests.length > 0) {
-      const nextRequest = allPendingRequests.find(req => !timedOutOrDeclinedRequests.some(declinedReq => declinedReq.id === req.id) && (!currentTrip || currentTrip.id !== req.id));
+    if (isOnline && isUserVerified && !requestInPopup && !currentTrip && allPendingRequests.length > 0) {
+      const nextRequest = allPendingRequests.find(req => !timedOutOrDeclinedRequests.some(declinedReq => declinedReq.id === req.id));
       if (nextRequest) { 
         setRequestInPopup(nextRequest); 
         setPopupTimer(POPUP_TIMEOUT_SECONDS); 
         playNotificationSound();
       }
     }
-  }, [allPendingRequests, requestInPopup, timedOutOrDeclinedRequests, currentTrip, isOnline, playNotificationSound]);
+  }, [allPendingRequests, requestInPopup, timedOutOrDeclinedRequests, currentTrip, isOnline, isUserVerified, playNotificationSound]);
 
   useEffect(() => {
     if (requestInPopup && popupTimer > 0) { popupIntervalRef.current = window.setInterval(() => setPopupTimer(prev => prev - 1), 1000); }
@@ -274,6 +281,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         if (popupIntervalRef.current) clearInterval(popupIntervalRef.current);
         popupIntervalRef.current = null;
         setTimedOutOrDeclinedRequests(prev => [...prev, requestInPopup]); 
+        setAllPendingRequests(prev => prev.filter(r => r.id !== requestInPopup.id));
         setRequestInPopup(null);
     }
     return () => { if (popupIntervalRef.current) clearInterval(popupIntervalRef.current); };
@@ -281,33 +289,60 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
   useEffect(() => {
     let requestChannel: RealtimeChannel | null = null; let pollingIntervalId: number | undefined = undefined;
-    if (isOnline) {
-      if (loggedInUserId && (!driverProfile.userId || driverProfile.userId !== loggedInUserId)) {
-          userService.fetchDriverProfile(loggedInUserId)
-              .then(data => setDriverProfile(data))
-              .catch(err => console.error("Error fetching driver profile:", err));
-      }
+    if (isOnline && isUserVerified) {
+        if (!currentTrip) {
+            // Only fetch requests if there is no active trip
+            fetchAllPendingRequests();
+            pollingIntervalId = window.setInterval(fetchAllPendingRequests, 7000);
+        }
 
-      fetchAllPendingRequests();
-      requestChannel = supabase.channel('driver_dashboard_ride_requests')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'ride_requests' }, (payload) => {
-            fetchAllPendingRequests(); 
-            if (currentTrip && payload.new && 'id' in payload.new && (payload.new as RideRequest).id === currentTrip.id) {
-                const updatedTrip = payload.new as RideRequest;
-                if (!['accepted', 'driver_en_route_to_origin', 'driver_at_origin', 'trip_started', 'en_route_to_destination', 'driver_at_destination'].includes(updatedTrip.status)) { 
-                    resetTripState();
-                    alert(isRTL ? "سفر فعلی شما تغییر وضعیت داده یا لغو شده است." : "Your current trip status has changed or been cancelled.");
-                } else { setCurrentTrip(updatedTrip); }
-            }
-          })
-        .subscribe((status, err) => { if (err) console.error('[DriverDashboard Realtime] Subscription Error:', getDebugMessage(err), err); });
-      pollingIntervalId = window.setInterval(fetchAllPendingRequests, 7000); 
-    } else { setAllPendingRequests([]); setRequestInPopup(null); if (popupIntervalRef.current) clearInterval(popupIntervalRef.current); resetTripState(); }
-    return () => { if (pollingIntervalId) clearInterval(pollingIntervalId); if (requestChannel) supabase.removeChannel(requestChannel); };
-  }, [isOnline, fetchAllPendingRequests, currentTrip, isRTL, resetTripState, supabase, loggedInUserId, driverProfile.userId]);
+        requestChannel = supabase.channel('driver_dashboard_ride_requests')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'ride_requests' }, (payload) => {
+                if (currentTrip) {
+                    if (payload.new && 'id' in payload.new && (payload.new as RideRequest).id === currentTrip.id) {
+                        const updatedTrip = payload.new as RideRequest;
+                        if (updatedTrip.status === 'cancelled_by_passenger') {
+                            alert(t.tripCancelledByPassenger);
+                            resetTripState();
+                        } else if (!['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination'].includes(updatedTrip.status)) {
+                            resetTripState();
+                            alert(isRTL ? "سفر فعلی شما تغییر وضعیت داده یا لغو شده است." : "Your current trip status has changed or been cancelled.");
+                        } else {
+                            setCurrentTrip(updatedTrip);
+                        }
+                    }
+                } else {
+                    fetchAllPendingRequests();
+                }
+            })
+            .subscribe((status, err) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log(`[DriverDashboard Realtime] Successfully subscribed to ride request table.`);
+                    return;
+                }
+                if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
+                    console.warn(`[DriverDashboard Realtime Warning] Subscription to ride requests failed. Falling back to polling. Status: ${status}`, getDebugMessage(err));
+                }
+            });
+
+    } else {
+        setAllPendingRequests([]);
+        setRequestInPopup(null);
+        if (popupIntervalRef.current) clearInterval(popupIntervalRef.current);
+        if (!currentTrip) resetTripState();
+    }
+    return () => {
+        if (pollingIntervalId) clearInterval(pollingIntervalId);
+        if (requestChannel) supabase.removeChannel(requestChannel);
+    };
+  }, [isOnline, isUserVerified, fetchAllPendingRequests, currentTrip, isRTL, resetTripState, supabase, t.tripCancelledByPassenger]);
 
   const toggleOnlineStatus = async () => {
-    if (!loggedInUserId) { alert("User ID not found. Cannot change status."); return; }
+    if (!loggedInUserId || !isUserVerified) { 
+        if (!isUserVerified) alert(t.accountNotVerifiedWarning);
+        else alert("User ID not found. Cannot change status."); 
+        return; 
+    }
     const newStatus = !isOnline; setIsOnline(newStatus); 
     try { 
         await userService.updateDriverOnlineStatus(loggedInUserId, newStatus); 
@@ -344,10 +379,9 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         return;
     }
     
-    // Clear timer and remove from popup immediately is already handled by setRequestInPopup below
     if (popupIntervalRef.current) clearInterval(popupIntervalRef.current);
     popupIntervalRef.current = null;
-    setRequestInPopup(null); // Close UI immediately
+    setRequestInPopup(null); 
 
     setAcceptingRequestId(requestToAccept.id); 
     
@@ -365,15 +399,28 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         setShowCurrentTripDrawer(true);
         setShowIncomingDrawer(false);
 
-        setIsLoadingPassengerDetails(true);
-        setPassengerDetailsError(null);
-        userService.fetchUserDetailsById(acceptedRide.passenger_id)
-            .then(setCurrentPassengerDetails)
-            .catch(e => {
-                console.error("Error fetching passenger details:", getDebugMessage(e));
-                setPassengerDetailsError(t.errorFetchingPassengerDetails);
-            })
-            .finally(() => setIsLoadingPassengerDetails(false));
+        if (acceptedRide.is_third_party) {
+            // For third-party rides, use the name/phone from the ride request itself.
+            setCurrentPassengerDetails({
+                id: acceptedRide.passenger_id, // Booker's ID for reference
+                fullName: acceptedRide.passenger_name,
+                phoneNumber: acceptedRide.passenger_phone,
+                profilePicUrl: null // No profile picture for third-party passengers
+            });
+            setIsLoadingPassengerDetails(false);
+            setPassengerDetailsError(null);
+        } else {
+            // For self-booked rides, fetch the passenger's full profile.
+            setIsLoadingPassengerDetails(true);
+            setPassengerDetailsError(null);
+            userService.fetchUserDetailsById(acceptedRide.passenger_id)
+                .then(setCurrentPassengerDetails)
+                .catch(e => {
+                    console.error("Error fetching passenger details:", getDebugMessage(e));
+                    setPassengerDetailsError(t.errorFetchingPassengerDetails);
+                })
+                .finally(() => setIsLoadingPassengerDetails(false));
+        }
 
         const driverLatLng = actualDriverGpsMarker.current.getLatLng();
         const driverPos: L.LatLngTuple = [driverLatLng.lat, driverLatLng.lng];
@@ -401,18 +448,13 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     }
   };
   
-  const handleAcceptRequestFromPopup = () => requestInPopup && handleAcceptRequest(requestInPopup);
-  const handleAcceptRequestFromDrawer = (requestId: string) => {
-    const request = timedOutOrDeclinedRequests.find(r => r.id === requestId) || allPendingRequests.find(r => r.id === requestId);
-    if (request) handleAcceptRequest(request);
-  };
-
   const handleDeclineRequestFromPopup = () => {
     if (!requestInPopup) return;
     if (popupIntervalRef.current) clearInterval(popupIntervalRef.current);
     popupIntervalRef.current = null;
     
     setTimedOutOrDeclinedRequests(prev => [...prev, requestInPopup]); 
+    setAllPendingRequests(prev => prev.filter(r => r.id !== requestInPopup.id));
     setRequestInPopup(null); 
   };
 
@@ -438,32 +480,105 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   };
 
   const handleStartTrip = async () => {
-    if (!currentTrip) return;
+    if (!currentTrip || !actualDriverGpsMarker.current) return;
+    
+    const { lat, lng } = actualDriverGpsMarker.current.getLatLng();
+    setActualTripStartCoords({ lat, lng });
+
     setCurrentTripPhase(DriverTripPhase.EN_ROUTE_TO_DESTINATION);
     await userService.updateRide(currentTrip.id, { status: 'trip_started', trip_started_at: new Date().toISOString() });
     
-    const originPos: L.LatLngTuple = [currentTrip.origin_lat, currentTrip.origin_lng];
+    const startPos: L.LatLngTuple = [lat, lng];
     const destPos: L.LatLngTuple = [currentTrip.destination_lat, currentTrip.destination_lng];
-    const routeCoords = await fetchOsrmRoute(originPos, destPos);
+    const routeCoords = await fetchOsrmRoute(startPos, destPos);
     if (routeCoords) {
         drawRouteOnMap(routeCoords, '#28a745');
-        drawTripMarkers(originPos, destPos);
+        drawTripMarkers([currentTrip.origin_lat, currentTrip.origin_lng], destPos);
     } else {
-        drawRouteOnMap([originPos, destPos], '#28a745', false); 
-        drawTripMarkers(originPos, destPos);
+        drawRouteOnMap([startPos, destPos], '#28a745', false); 
+        drawTripMarkers([currentTrip.origin_lat, currentTrip.origin_lng], destPos);
         alert(isRTL ? "خطا در مسیریابی به مقصد. مسیر مستقیم نمایش داده شد." : "Routing error to destination. Straight line shown.");
     }
   };
 
+  const calculateActualDistanceKm = async (origin: {lat: number, lng: number}, destination: {lat: number, lng: number}): Promise<number | null> => {
+    try {
+        const fetchOptions: RequestInit = {
+            method: 'GET',
+            headers: { 'User-Agent': APP_USER_AGENT },
+            mode: 'cors',
+            referrerPolicy: 'strict-origin-when-cross-origin'
+        };
+        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false`, fetchOptions);
+        if (!response.ok) throw new Error(`OSRM API error: ${response.status} ${response.statusText}`);
+        const data = await response.json();
+        if (data.routes && data.routes.length > 0 && data.routes[0].distance) {
+            return data.routes[0].distance / 1000;
+        }
+        return null;
+    } catch (error) {
+        console.error("Error calculating actual route distance:", error);
+        return null;
+    }
+  };
+
   const handleEndTrip = async () => {
-    if (!currentTrip) return;
+    if (!currentTrip || !actualDriverGpsMarker.current || !actualTripStartCoords) {
+        alert(isRTL ? "نمی توان سفر را به پایان رساند: اطلاعات سفر، مکان راننده، یا مختصات شروع موجود نیست." : "Cannot end trip: missing trip info, driver location, or start coordinates.");
+        return;
+    }
+
+    const endCoords = actualDriverGpsMarker.current.getLatLng();
+    const startCoords = actualTripStartCoords;
+
+    const actualDistance = await calculateActualDistanceKm({lat: startCoords.lat, lng: startCoords.lng}, {lat: endCoords.lat, lng: endCoords.lng});
+    
+    let finalFare = currentTrip.estimated_fare;
+    const service = allAppServices.find(s => s.id === currentTrip.service_id);
+
+    if (actualDistance && service?.pricePerKm) {
+        finalFare = actualDistance * service.pricePerKm;
+    }
+
     await userService.updateRide(currentTrip.id, { 
         status: 'completed', 
         completed_at: new Date().toISOString(),
-        actual_fare: currentTrip.estimated_fare 
+        actual_fare: finalFare 
     });
-    // Daily earnings card removed, but logic can stay if needed elsewhere
+    
     resetTripState();
+  };
+
+  const handleDriverCancellationSubmit = async (reasonKey: string, customReason: string) => {
+    if (!currentTrip || !loggedInUserId) {
+        alert(t.errorCancellingTrip + " (Missing IDs)");
+        return;
+    }
+    setIsSubmittingCancellation(true);
+    try {
+        await userService.updateRide(currentTrip.id, { status: 'cancelled_by_driver' });
+        await userService.submitCancellationReport({
+            rideId: currentTrip.id,
+            userId: loggedInUserId,
+            role: 'driver',
+            reasonKey: reasonKey,
+            customReason: customReason || null
+        });
+        console.log(`[DriverDashboard] Cancellation report for ride ${currentTrip.id} submitted successfully.`);
+        resetTripState();
+    } catch (error: any) {
+        console.error("Error submitting driver cancellation:", getDebugMessage(error), error);
+        alert(t.errorSubmittingCancellation + `\n\n${getDebugMessage(error)}`);
+        resetTripState(); // Reset anyway
+    } finally {
+        setIsCancellationModalOpen(false);
+        setIsSubmittingCancellation(false);
+    }
+  };
+
+  const handleCancelTrip = () => {
+    if (!currentTrip) return;
+    setIsCancellationModalOpen(true);
   };
 
   const handleLocateDriver = () => {
@@ -496,13 +611,88 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         );
     } else { alert(t.geolocationNotSupported); }
   };
+  
+  // Trip recovery effect
+  useEffect(() => {
+    const recoverTrip = async () => {
+      if (!loggedInUserId || currentTrip) {
+        return;
+      }
+      try {
+        const activeTrip = await userService.fetchActiveDriverTrip(loggedInUserId);
+        if (activeTrip) {
+          console.log("[Trip Recovery] Found active driver trip:", activeTrip);
+          setCurrentTrip(activeTrip);
+          
+          let recoveredPhase = DriverTripPhase.NONE;
+          switch(activeTrip.status) {
+              case 'accepted':
+              case 'driver_en_route_to_origin':
+                if (activeTrip.driver_arrived_at_origin_at) {
+                    recoveredPhase = DriverTripPhase.AT_PICKUP;
+                } else {
+                    recoveredPhase = DriverTripPhase.EN_ROUTE_TO_PICKUP;
+                }
+                break;
+              case 'trip_started':
+                recoveredPhase = DriverTripPhase.EN_ROUTE_TO_DESTINATION; break;
+              case 'driver_at_destination':
+                recoveredPhase = DriverTripPhase.AT_DESTINATION; break;
+          }
+          setCurrentTripPhase(recoveredPhase);
+          setShowCurrentTripDrawer(true);
+          
+          if (activeTrip.is_third_party) {
+            setCurrentPassengerDetails({
+                id: activeTrip.passenger_id, fullName: activeTrip.passenger_name, phoneNumber: activeTrip.passenger_phone, profilePicUrl: null
+            });
+          } else {
+            setIsLoadingPassengerDetails(true);
+            userService.fetchUserDetailsById(activeTrip.passenger_id)
+                .then(setCurrentPassengerDetails)
+                .catch(e => {
+                    console.error("[Trip Recovery] Error fetching passenger details:", getDebugMessage(e));
+                    setPassengerDetailsError(t.errorFetchingPassengerDetails);
+                })
+                .finally(() => setIsLoadingPassengerDetails(false));
+          }
+
+          clearMapTripElements();
+          const pickupPos: L.LatLngTuple = [activeTrip.origin_lat, activeTrip.origin_lng];
+          const destPos: L.LatLngTuple = [activeTrip.destination_lat, activeTrip.destination_lng];
+          
+          if (recoveredPhase === DriverTripPhase.EN_ROUTE_TO_PICKUP || recoveredPhase === DriverTripPhase.AT_PICKUP) {
+            drawTripMarkers(pickupPos, null);
+            if (actualDriverGpsMarker.current) {
+                const driverPos = actualDriverGpsMarker.current.getLatLng();
+                const routeCoords = await fetchOsrmRoute([driverPos.lat, driverPos.lng], pickupPos);
+                if (routeCoords) drawRouteOnMap(routeCoords, '#007bff');
+            }
+          } else if (recoveredPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION || recoveredPhase === DriverTripPhase.AT_DESTINATION) {
+            drawTripMarkers(pickupPos, destPos);
+            if (actualDriverGpsMarker.current) {
+                const driverPos = actualDriverGpsMarker.current.getLatLng();
+                const routeCoords = await fetchOsrmRoute([driverPos.lat, driverPos.lng], destPos);
+                if (routeCoords) drawRouteOnMap(routeCoords, '#28a745');
+            }
+          }
+        }
+      } catch (error) {
+        console.error("[Trip Recovery] Error recovering driver trip:", getDebugMessage(error));
+      }
+    };
+    if (loggedInUserId) {
+        recoverTrip();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedInUserId]);
 
   const driverDashboardPageStyle: CSSProperties = { fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', direction: isRTL ? 'rtl' : 'ltr', width: '100%', height: '100vh', position: 'relative', overflow: 'hidden', };
   const mapBackgroundStyle: CSSProperties = { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0, };
-  const contentOverlayStyle: CSSProperties = { position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', padding: '1rem', boxSizing: 'border-box', maxWidth: '600px', margin: '0 auto', backgroundColor: 'rgba(244, 246, 248, 0.0)', pointerEvents: 'none', };
+  const contentOverlayStyle: CSSProperties = { position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', padding: '1rem', boxSizing: 'border-box', maxWidth: '600px', margin: '0 auto', backgroundColor: 'rgba(244, 246, 248, 0.0)', };
   const headerStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', pointerEvents: 'auto', backgroundColor: 'rgba(255, 255, 255, 0.85)', padding: '0.75rem 1rem', borderRadius: '0.5rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', };
   const headerActionsStyle: CSSProperties = { display: 'flex', gap: '0.75rem', alignItems: 'center'};
-  const headerButtonStyle: CSSProperties = { padding: '0.5rem 0.75rem', fontSize: '0.875rem', color: '#2d3748', backgroundColor: 'rgba(255,255,255,0.9)', border: '1px solid #cbd5e0', borderRadius: '0.375rem', cursor: 'pointer', transition: 'background-color 0.2s', display: 'flex', alignItems: 'center', gap: '0.35rem' };
+  const headerButtonStyle: CSSProperties = { padding: '0.5rem 0.75rem', fontSize: '0.875rem', color: '#2d3748', backgroundColor: 'rgba(255,255,255,0.9)', border: '1px solid #cbd5e0', borderRadius: '0.375rem', cursor: 'pointer', transition: 'background-color 0.2s, opacity 0.2s', display: 'flex', alignItems: 'center', gap: '0.35rem' };
   const headerButtonHoverStyle: CSSProperties = { backgroundColor: '#e2e8f0' };
   const badgeStyle: CSSProperties = { backgroundColor: '#e53e3e', color: 'white', fontSize: '0.7rem', fontWeight: 'bold', padding: '0.1rem 0.4rem', borderRadius: '50%', minWidth: '1rem', textAlign: 'center' };
   const logoutButtonStyle: CSSProperties = { padding: '0.6rem 1rem', fontSize: '0.9rem', color: 'white', backgroundColor: '#e53e3e', border: 'none', borderRadius: '0.375rem', cursor: 'pointer', transition: 'background-color 0.2s', };
@@ -514,13 +704,14 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     backgroundColor: isOnline ? 'rgba(72, 187, 120, 0.9)' : 'rgba(160, 174, 192, 0.9)', 
     border: 'none', 
     borderRadius: '50%', // Make it circular
-    cursor: 'pointer', 
+    cursor: !isUserVerified ? 'not-allowed' : 'pointer', 
     display: 'flex', 
     alignItems: 'center', 
     justifyContent: 'center', 
     boxShadow: '0 2px 4px rgba(0,0,0,0.1)', 
-    transition: 'background-color 0.3s', 
+    transition: 'background-color 0.3s, opacity 0.3s', 
     pointerEvents: 'auto',
+    opacity: !isUserVerified ? 0.6 : 1,
   };
   
   const cardsAreaStyle: CSSProperties = { flexGrow: 1, overflowY: 'auto', pointerEvents: 'auto', paddingTop: '1rem', paddingBottom: '1rem', WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 30px), transparent 100%)', maskImage: 'linear-gradient(to bottom, black calc(100% - 30px), transparent 100%)', };
@@ -550,13 +741,14 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
           <button 
             style={statusToggleStyle} 
             onClick={toggleOnlineStatus}
+            disabled={!isUserVerified}
             aria-label={isOnline ? t.driverStatusOnline : t.driverStatusOffline}
           >
             {/* No visible content, color indicates status. ARIA label provides info. */}
           </button>
           <div style={headerActionsStyle}>
-            <button style={headerButtonStyle} onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = headerButtonHoverStyle.backgroundColor!)} onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = headerButtonStyle.backgroundColor!)} onClick={() => setShowIncomingDrawer(true)} aria-haspopup="true" aria-expanded={showIncomingDrawer} > <ListIcon style={{fontSize: '1.1rem'}}/> {t.requestsButton} {timedOutOrDeclinedRequests.length > 0 && <span style={badgeStyle}>{timedOutOrDeclinedRequests.length}</span>} </button>
-            <button style={headerButtonStyle} onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = headerButtonHoverStyle.backgroundColor!)} onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = headerButtonStyle.backgroundColor!)} onClick={() => setShowCurrentTripDrawer(true)} aria-haspopup="true" aria-expanded={showCurrentTripDrawer} disabled={!currentTrip} > <CarIcon style={{fontSize: '1.1rem'}}/> {t.activeTripButton} </button>
+            <button style={{...headerButtonStyle, ...(!!currentTrip ? { opacity: 0.6, cursor: 'not-allowed'} : {})}} onMouseEnter={(e) => {if (!currentTrip) e.currentTarget.style.backgroundColor = headerButtonHoverStyle.backgroundColor!}} onMouseLeave={(e) => {if (!currentTrip) e.currentTarget.style.backgroundColor = headerButtonStyle.backgroundColor!}} onClick={() => setShowIncomingDrawer(true)} aria-haspopup="true" aria-expanded={showIncomingDrawer} disabled={!!currentTrip} > <ListIcon style={{fontSize: '1.1rem'}}/> {t.requestsButton} {(timedOutOrDeclinedRequests.length + allPendingRequests.length) > 0 && <span style={badgeStyle}>{timedOutOrDeclinedRequests.length + allPendingRequests.length}</span>} </button>
+            <button style={{...headerButtonStyle, ...(!currentTrip ? { opacity: 0.6, cursor: 'not-allowed'} : {})}} onMouseEnter={(e) => {if (currentTrip) e.currentTarget.style.backgroundColor = headerButtonHoverStyle.backgroundColor!}} onMouseLeave={(e) => {if (currentTrip) e.currentTarget.style.backgroundColor = headerButtonStyle.backgroundColor!}} onClick={() => setShowCurrentTripDrawer(true)} aria-haspopup="true" aria-expanded={showCurrentTripDrawer} disabled={!currentTrip} > <CarIcon style={{fontSize: '1.1rem'}}/> {t.activeTripButton} </button>
             <button style={headerButtonStyle} onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = headerButtonHoverStyle.backgroundColor!)} onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = headerButtonStyle.backgroundColor!)} onClick={() => setShowProfileModal(true)} aria-label={t.profileButtonAriaLabel} > <ProfileIcon style={{fontSize: '1.1rem'}}/> </button>
             <button style={logoutButtonStyle} onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = logoutButtonHoverStyle.backgroundColor!)} onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = logoutButtonStyle.backgroundColor!)} onClick={onLogout} > {t.logoutButton} </button>
           </div>
@@ -564,7 +756,12 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         
         {isNavigating && <p style={navigationLoadingStyle}>{t.calculatingPrice}</p>}
         <div style={cardsAreaStyle}>
-            {!isOnline && !currentTrip && (
+            { !isUserVerified && (
+              <div style={{...cardStyle, backgroundColor: 'rgba(255, 249, 230, 0.95)', border: '1px solid #FBBF24', textAlign: 'center', marginTop: '1rem'}}>
+                  <p style={{color: '#B45309', fontWeight: 500}}>{t.accountNotVerifiedWarning}</p>
+              </div>
+            )}
+            {!isOnline && !currentTrip && isUserVerified && (
             <div style={{...cardStyle, backgroundColor: 'rgba(230, 255, 250, 0.9)', border: '1px solid #38b2ac', textAlign: 'center', marginTop: '1rem'}}>
                 <p style={{color: '#2c7a7b', fontWeight: 500}}>{t.goOnlinePrompt}</p>
             </div>
@@ -572,52 +769,60 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         </div>
       </div>
       <button style={gpsFabStyle} onClick={handleLocateDriver} aria-label={t.gpsButtonAriaLabel} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'} onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'} onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'} > <GpsIcon style={{ color: '#007AFF', width: '1.75rem', height: '1.75rem' }} /> </button>
-      {requestInPopup && isOnline && ( <NewRideRequestPopup currentLang={currentLang} request={requestInPopup} allAppServices={allAppServices} timer={popupTimer} onAccept={handleAcceptRequestFromPopup} onDecline={handleDeclineRequestFromPopup} /> )}
+      {requestInPopup && isOnline && isUserVerified && !currentTrip && ( <NewRideRequestPopup currentLang={currentLang} request={requestInPopup} allAppServices={allAppServices} timer={popupTimer} onAccept={() => handleAcceptRequest(requestInPopup)} onDecline={handleDeclineRequestFromPopup} /> )}
       <DriverProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} currentLang={currentLang} loggedInUserId={loggedInUserId} />
       <DrawerPanel currentLang={currentLang} isOpen={showIncomingDrawer} onClose={() => setShowIncomingDrawer(false)} title={t.incomingRequestsDrawerTitle} side={isRTL ? 'right' : 'left'} >
-        {isLoadingAllPending && <p style={loadingTextStyle}>{t.loadingRequests}</p>}
-        {fetchError && !isLoadingAllPending && <p style={errorTextStyle}>{fetchError}</p>}
-        {!isLoadingAllPending && !fetchError && timedOutOrDeclinedRequests.length === 0 && allPendingRequests.filter(req => !timedOutOrDeclinedRequests.find(tdr => tdr.id === req.id)).length === 0 && ( <p style={noDataTextStyle}>{t.noDeclinedRequests}</p> )}
-        
-         {!isLoadingAllPending && !fetchError && allPendingRequests.filter(req => !timedOutOrDeclinedRequests.find(tdr => tdr.id === req.id) && req.id !== requestInPopup?.id).length > 0 &&
-           allPendingRequests.filter(req => !timedOutOrDeclinedRequests.find(tdr => tdr.id === req.id) && req.id !== requestInPopup?.id).map((req) => (
-             <div key={`pending-${req.id}`} style={{...requestItemStyle, opacity: 0.7}}>
-               <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestPassengerLabel}:</span> <span style={requestValueStyle}>{req.passenger_name || (isRTL ? 'نامشخص' : 'N/A')}</span> </div>
-               <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestFromLabel}:</span> <span style={requestValueStyle} title={req.origin_address}>{req.origin_address}</span> </div>
-               <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestToLabel}:</span> <span style={requestValueStyle} title={req.destination_address}>{req.destination_address}</span> </div>
-               <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestFareLabel}:</span> <span style={requestFareStyle}>{t.earningsAmountUnit.replace('{amount}', (req.estimated_fare ?? 0).toLocaleString(isRTL ? 'fa-IR' : 'en-US'))}</span> </div>
-                {/* This button is only for requests in the drawer that were previously declined/timed out or are just pending but not in active popup */}
-                <button 
-                  style={acceptingRequestId === req.id ? {...acceptButtonStyle, ...acceptButtonDisabledStyle} : (isAcceptButtonHovered[`drawer-${req.id}`] ? {...acceptButtonStyle, ...acceptButtonHoverStyle} : acceptButtonStyle) }
-                  onClick={() => handleAcceptRequestFromDrawer(req.id)}
-                  disabled={acceptingRequestId === req.id || !!currentTrip}
-                  onMouseEnter={() => setIsAcceptButtonHovered(prev => ({...prev, [`drawer-${req.id}`]: true}))}
-                  onMouseLeave={() => setIsAcceptButtonHovered(prev => ({...prev, [`drawer-${req.id}`]: false}))}
-                >
-                  {acceptingRequestId === req.id ? t.servicesLoading : t.acceptRideButton}
-                </button>
-             </div>
-           ))}
-        {timedOutOrDeclinedRequests.length > 0 && (
-            <>
-                <h4 style={{...cardTitleStyle, marginTop: '1.5rem', fontSize: '0.9rem'}}>{isRTL ? 'رد شده / بدون پاسخ' : 'Declined / Unanswered'}</h4>
-                {timedOutOrDeclinedRequests.map(req => (
-                    <div key={`declined-${req.id}`} style={{...requestItemStyle, opacity: 0.8, backgroundColor: 'rgba(254, 226, 226, 0.5)'}}>
-                        <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestPassengerLabel}:</span> <span style={requestValueStyle}>{req.passenger_name || (isRTL ? 'نامشخص' : 'N/A')}</span> </div>
-                        <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestFromLabel}:</span> <span style={requestValueStyle} title={req.origin_address}>{req.origin_address}</span> </div>
-                        <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestToLabel}:</span> <span style={requestValueStyle} title={req.destination_address}>{req.destination_address}</span> </div>
-                        <button 
-                          style={acceptingRequestId === req.id ? {...acceptButtonStyle, ...acceptButtonDisabledStyle} : (isAcceptButtonHovered[`drawer-${req.id}`] ? {...acceptButtonStyle, ...acceptButtonHoverStyle} : acceptButtonStyle) }
-                          onClick={() => handleAcceptRequestFromDrawer(req.id)}
-                          disabled={acceptingRequestId === req.id || !!currentTrip}
-                           onMouseEnter={() => setIsAcceptButtonHovered(prev => ({...prev, [`drawer-${req.id}`]: true}))}
-                           onMouseLeave={() => setIsAcceptButtonHovered(prev => ({...prev, [`drawer-${req.id}`]: false}))}
-                        >
-                          {acceptingRequestId === req.id ? t.servicesLoading : t.acceptRideButton}
-                        </button>
-                    </div>
-                ))}
-            </>
+        {currentTrip ? (
+            <p style={noDataTextStyle}>{t.cannotViewRequestsDuringTrip}</p>
+        ) : (
+          <>
+            {isLoadingAllPending && <p style={loadingTextStyle}>{t.loadingRequests}</p>}
+            {fetchError && !isLoadingAllPending && <p style={errorTextStyle}>{fetchError}</p>}
+            
+            {!isLoadingAllPending && !fetchError && timedOutOrDeclinedRequests.length === 0 && allPendingRequests.length === 0 && (
+                <p style={noDataTextStyle}>{t.noIncomingRequests}</p>
+            )}
+
+            {!isLoadingAllPending && !fetchError && allPendingRequests.map((req) => (
+                <div key={`pending-${req.id}`} style={requestItemStyle}>
+                  <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestPassengerLabel}:</span> <span style={requestValueStyle}>{req.passenger_name || (isRTL ? 'نامشخص' : 'N/A')}</span> </div>
+                  <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestFromLabel}:</span> <span style={requestValueStyle} title={req.origin_address}>{req.origin_address}</span> </div>
+                  <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestToLabel}:</span> <span style={requestValueStyle} title={req.destination_address}>{req.destination_address}</span> </div>
+                  <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestFareLabel}:</span> <span style={requestFareStyle}>{t.earningsAmountUnit.replace('{amount}', Math.round(req.estimated_fare ?? 0).toLocaleString(isRTL ? 'fa-IR' : 'en-US'))}</span> </div>
+                    <button 
+                      style={acceptingRequestId === req.id ? {...acceptButtonStyle, ...acceptButtonDisabledStyle} : (isAcceptButtonHovered[`drawer-${req.id}`] ? {...acceptButtonStyle, ...acceptButtonHoverStyle} : acceptButtonStyle) }
+                      onClick={() => handleAcceptRequest(req)}
+                      disabled={acceptingRequestId === req.id || !!currentTrip}
+                      onMouseEnter={() => setIsAcceptButtonHovered(prev => ({...prev, [`drawer-${req.id}`]: true}))}
+                      onMouseLeave={() => setIsAcceptButtonHovered(prev => ({...prev, [`drawer-${req.id}`]: false}))}
+                    >
+                      {acceptingRequestId === req.id ? t.servicesLoading : t.acceptRideButton}
+                    </button>
+                </div>
+              ))}
+
+            {timedOutOrDeclinedRequests.length > 0 && (
+                <>
+                    <h4 style={{...cardTitleStyle, marginTop: '1.5rem', fontSize: '0.9rem'}}>{isRTL ? 'رد شده / بدون پاسخ' : 'Declined / Unanswered'}</h4>
+                    {timedOutOrDeclinedRequests.map(req => (
+                        <div key={`declined-${req.id}`} style={{...requestItemStyle, opacity: 0.8, backgroundColor: 'rgba(254, 226, 226, 0.5)'}}>
+                            <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestPassengerLabel}:</span> <span style={requestValueStyle}>{req.passenger_name || (isRTL ? 'نامشخص' : 'N/A')}</span> </div>
+                            <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestFromLabel}:</span> <span style={requestValueStyle} title={req.origin_address}>{req.origin_address}</span> </div>
+                            <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestToLabel}:</span> <span style={requestValueStyle} title={req.destination_address}>{req.destination_address}</span> </div>
+                            <button 
+                              style={acceptingRequestId === req.id ? {...acceptButtonStyle, ...acceptButtonDisabledStyle} : (isAcceptButtonHovered[`drawer-${req.id}`] ? {...acceptButtonStyle, ...acceptButtonHoverStyle} : acceptButtonStyle) }
+                              onClick={() => handleAcceptRequest(req)}
+                              disabled={acceptingRequestId === req.id || !!currentTrip}
+                               onMouseEnter={() => setIsAcceptButtonHovered(prev => ({...prev, [`drawer-${req.id}`]: true}))}
+                               onMouseLeave={() => setIsAcceptButtonHovered(prev => ({...prev, [`drawer-${req.id}`]: false}))}
+                            >
+                              {acceptingRequestId === req.id ? t.servicesLoading : t.acceptRideButton}
+                            </button>
+                        </div>
+                    ))}
+                </>
+            )}
+          </>
         )}
       </DrawerPanel>
       <DrawerPanel currentLang={currentLang} isOpen={showCurrentTripDrawer} onClose={() => setShowCurrentTripDrawer(false)} title={t.currentTripDrawerTitle} side={isRTL ? 'left' : 'right'}>
@@ -632,10 +837,21 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
                 onNavigateToPickup={handleNavigateToPickup}
                 onStartTrip={handleStartTrip}
                 onEndTrip={handleEndTrip}
+                onCancelTrip={handleCancelTrip}
             />
         )}
         {!currentTrip && <p style={noDataTextStyle}>{t.noActiveTrip}</p>}
       </DrawerPanel>
+      {isCancellationModalOpen && currentTrip && (
+          <CancellationModal
+              isOpen={isCancellationModalOpen}
+              onClose={() => setIsCancellationModalOpen(false)}
+              onSubmit={handleDriverCancellationSubmit}
+              userRole="driver"
+              currentLang={currentLang}
+              isSubmitting={isSubmittingCancellation}
+          />
+      )}
     </div>
   );
 };

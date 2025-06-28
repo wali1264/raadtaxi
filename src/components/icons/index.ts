@@ -34,4 +34,4 @@ export * from './TaxiIcon';
 export * from './MotorcycleRickshawIcon';
 export * from './NavigationIcon';
 export * from './UserCircleIcon';
-export * from './EditIcon'; // Added EditIcon export
+export * from './EditIcon';

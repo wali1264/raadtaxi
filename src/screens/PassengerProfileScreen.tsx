@@ -8,11 +8,10 @@ import { getDebugMessage } from '../utils/helpers';
 
 interface PassengerProfileScreenProps {
   onBackToMap: () => void;
+  onLogout: () => void;
 }
 
-const PLACEHOLDER_NEW_IMAGE = "::placeholder_new_image::";
-
-export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ onBackToMap }) => {
+export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ onBackToMap, onLogout }) => {
   const { currentLang, loggedInUserId, loggedInUserFullName, t } = useAppContext();
   const isRTL = currentLang !== 'en';
 
@@ -22,6 +21,7 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
     profilePicUrl: '',
   });
   const [initialProfileData, setInitialProfileData] = useState<Partial<PassengerProfileData>>({});
+  const [pinFromDb, setPinFromDb] = useState<string>('');
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null); // For local preview
 
@@ -33,6 +33,7 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [showChangePhotoOptions, setShowChangePhotoOptions] = useState(false);
+  const [isLogoutHovered, setIsLogoutHovered] = React.useState(false);
 
 
   useEffect(() => {
@@ -46,16 +47,29 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
         try {
           const fetchedData = await userService.fetchUserDetailsById(loggedInUserId);
           if (fetchedData) {
+            let url = '', pin = '';
+            if (fetchedData.profilePicUrl) {
+                try {
+                    const parsed = JSON.parse(fetchedData.profilePicUrl);
+                    url = parsed.url || '';
+                    pin = parsed.pin || '';
+                } catch (e) {
+                    // Legacy data might just be a URL string
+                    url = fetchedData.profilePicUrl;
+                }
+            }
+
             const data = {
                 userId: fetchedData.id,
                 fullName: fetchedData.fullName || '',
                 phoneNumber: fetchedData.phoneNumber || '',
-                profilePicUrl: fetchedData.profilePicUrl || '',
+                profilePicUrl: url,
             };
             setProfileData(data);
             setInitialProfileData(data);
-            if (data.profilePicUrl && !data.profilePicUrl.startsWith("::placeholder")) {
-              setImagePreviewUrl(data.profilePicUrl);
+            setPinFromDb(pin);
+            if (url) {
+              setImagePreviewUrl(url);
             }
           } else {
             setError(t.errorLoadingProfileData);
@@ -74,22 +88,14 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
   useEffect(() => {
     const currentFullName = profileData.fullName?.trim() || "";
     const initialFullName = initialProfileData.fullName?.trim() || "";
+    const photoRemoved = initialProfileData.profilePicUrl && !profileData.profilePicUrl;
 
-    // A change is:
-    // 1. Full name changed OR
-    // 2. A new file has been selected (selectedImageFile is not null) OR
-    // 3. The profilePicUrl in profileData (which might be an empty string if "Remove Photo" was clicked)
-    //    is different from the initialProfileData.profilePicUrl, AND no new file is selected
-    //    (to avoid flagging change if URL was just set for preview from selectedImageFile).
-    if (currentFullName !== initialFullName ||
-        selectedImageFile !== null ||
-        (selectedImageFile === null && profileData.profilePicUrl !== initialProfileData.profilePicUrl)
-    ) {
+    if (currentFullName !== initialFullName || selectedImageFile !== null || photoRemoved) {
       setHasChanges(true);
     } else {
       setHasChanges(false);
     }
-  }, [profileData.fullName, profileData.profilePicUrl, selectedImageFile, initialProfileData.fullName, initialProfileData.profilePicUrl]);
+  }, [profileData, selectedImageFile, initialProfileData]);
 
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -103,14 +109,13 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
     const file = event.target.files?.[0];
     if (file) {
       setSelectedImageFile(file);
-      setImagePreviewUrl(URL.createObjectURL(file));
-      // profileData.profilePicUrl will be updated to placeholder on save
-      // For now, allow hasChanges to be set by useEffect.
+      const previewUrl = URL.createObjectURL(file);
+      setImagePreviewUrl(previewUrl);
+      setProfileData(prev => ({ ...prev, profilePicUrl: previewUrl }));
       setSuccessMessage(null);
       setError(null);
       setShowChangePhotoOptions(false);
     }
-    // Reset the input value so onChange fires again for the same file if re-selected
     if(event.target) event.target.value = '';
   };
 
@@ -125,57 +130,76 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
 
   const handleSaveChanges = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loggedInUserId || !hasChanges) return;
+    if (!loggedInUserId || !hasChanges) {
+        if (!hasChanges) setSuccessMessage(t.profileUpdatedSuccessfully);
+        return;
+    }
 
     setIsLoading(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
-      const dataToUpdate: { full_name?: string; profile_pic_url?: string } = {};
-      let newProfilePicUrlForState = profileData.profilePicUrl;
+        const dataToUpdate: { full_name?: string; profile_pic_url?: string } = {};
+        let newUrl: string | undefined = undefined;
 
-      if (profileData.fullName !== initialProfileData.fullName) {
-        dataToUpdate.full_name = profileData.fullName?.trim();
-      }
+        // Step 1: Handle image upload/deletion
+        if (selectedImageFile) {
+            // If there's an old picture, delete it first.
+            if (initialProfileData.profilePicUrl) {
+                await userService.deleteProfilePicture(initialProfileData.profilePicUrl);
+            }
+            newUrl = await userService.uploadProfilePicture(loggedInUserId, selectedImageFile);
+        } else if (initialProfileData.profilePicUrl && !profileData.profilePicUrl) {
+            // This means the user removed the photo
+            await userService.deleteProfilePicture(initialProfileData.profilePicUrl);
+            newUrl = ''; // Set to empty string to clear it
+        }
 
-      if (selectedImageFile) { // New image selected
-        dataToUpdate.profile_pic_url = PLACEHOLDER_NEW_IMAGE; // Simulate upload with placeholder
-        newProfilePicUrlForState = PLACEHOLDER_NEW_IMAGE;
-      } else if (profileData.profilePicUrl !== initialProfileData.profilePicUrl) { // Existing image removed or (future) URL manually changed
-        dataToUpdate.profile_pic_url = profileData.profilePicUrl || null; // Send empty string or null to clear
-        newProfilePicUrlForState = profileData.profilePicUrl || '';
-      }
-      
-      if (Object.keys(dataToUpdate).length > 0) {
-        const updatedUser = await userService.updateUser(loggedInUserId, dataToUpdate);
-        setInitialProfileData({
-            userId: loggedInUserId,
-            fullName: updatedUser.full_name || '',
-            phoneNumber: profileData.phoneNumber, // Phone number doesn't change here
-            profilePicUrl: newProfilePicUrlForState,
-        });
-        setProfileData(prev => ({
-            ...prev,
-            fullName: updatedUser.full_name || '',
-            profilePicUrl: newProfilePicUrlForState,
-        }));
+        // Step 2: Prepare data for DB update
+        if ((profileData.fullName || '') !== (initialProfileData.fullName || '')) {
+            dataToUpdate.full_name = profileData.fullName?.trim();
+        }
 
-      }
-      setSuccessMessage(t.profileUpdatedSuccessfully);
-      setSelectedImageFile(null); // Clear selected file after save
-      // imagePreviewUrl will be naturally updated or cleared based on newProfilePicUrlForState
-      if (newProfilePicUrlForState && newProfilePicUrlForState !== PLACEHOLDER_NEW_IMAGE && !newProfilePicUrlForState.startsWith('blob:')) {
-        setImagePreviewUrl(newProfilePicUrlForState);
-      } else if (!newProfilePicUrlForState || newProfilePicUrlForState === PLACEHOLDER_NEW_IMAGE) {
-        setImagePreviewUrl(null); // Clear preview if placeholder or removed
-      }
-      setHasChanges(false);
+        // If URL changed, add it to the update payload
+        if (newUrl !== undefined) {
+            dataToUpdate.profile_pic_url = JSON.stringify({ pin: pinFromDb, url: newUrl });
+        }
+
+        // Step 3: Update DB if there are any changes
+        if (Object.keys(dataToUpdate).length > 0) {
+            const updatedUser = await userService.updateUser(loggedInUserId, dataToUpdate);
+            
+            let newUrlFromDb = '';
+            if (updatedUser.profile_pic_url) {
+                try {
+                    const parsed = JSON.parse(updatedUser.profile_pic_url);
+                    newUrlFromDb = parsed.url || '';
+                } catch (e) { newUrlFromDb = updatedUser.profile_pic_url; }
+            }
+            
+            const newProfileState = {
+                userId: loggedInUserId,
+                fullName: updatedUser.full_name || '',
+                phoneNumber: profileData.phoneNumber,
+                profilePicUrl: newUrlFromDb,
+            };
+
+            setInitialProfileData(newProfileState);
+            setProfileData(newProfileState);
+            setImagePreviewUrl(newUrlFromDb || null);
+        }
+        
+        // Step 4: Finalize UI state
+        setSuccessMessage(t.profileUpdatedSuccessfully);
+        setSelectedImageFile(null);
+        setHasChanges(false);
+
     } catch (err: any) {
-      console.error("PassengerProfileScreen: Error saving profile data -", getDebugMessage(err), err);
-      setError(t.errorUpdatingProfile + (err.message ? `: ${getDebugMessage(err)}` : ''));
+        console.error("PassengerProfileScreen: Error saving profile data -", getDebugMessage(err), err);
+        setError(t.errorUpdatingProfile + (err.message ? `: ${getDebugMessage(err)}` : ''));
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
   };
 
@@ -259,31 +283,41 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
   const placeholderItemStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 0', borderBottom: '1px solid #f0f0f0', fontSize: '0.95rem', color: '#555', };
   const placeholderLinkStyle: CSSProperties = { color: '#007bff', textDecoration: 'none', fontSize: '0.9rem', };
 
-  const saveButtonContainerStyle: CSSProperties = { padding: '1rem 0 0 0', backgroundColor: 'transparent', marginTop: '1rem' }; // Removed top border
+  const saveButtonContainerStyle: CSSProperties = { padding: '1rem 0 0 0', backgroundColor: 'transparent', marginTop: '1rem' };
   const saveButtonStyle: CSSProperties = { width: '100%', padding: '0.875rem', backgroundColor: '#3182CE', color: 'white', border: 'none', borderRadius: '0.375rem', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', transition: 'background-color 0.2s, opacity 0.2s' };
   const saveButtonDisabledStyle: CSSProperties = { backgroundColor: '#A0AEC0', opacity:0.7, cursor: 'not-allowed' };
 
   const messageStyle: CSSProperties = { textAlign: 'center', padding: '0.75rem', borderRadius: '0.375rem', margin: '0 0 1rem 0', fontSize: '0.9rem'};
   const successMessageStyle: CSSProperties = {...messageStyle, backgroundColor: '#C6F6D5', color: '#2F855A'};
   const errorMessageStyle: CSSProperties = {...messageStyle, backgroundColor: '#FED7D7', color: '#C53030'};
+  
+  const logoutSectionStyle: CSSProperties = {
+    marginTop: '2rem',
+    paddingTop: '1.5rem',
+    borderTop: '1px solid #e5e7eb',
+  };
+
+  const logoutButtonStyle: CSSProperties = {
+    width: '100%',
+    padding: '0.875rem',
+    backgroundColor: '#EF4444', // Red color for logout
+    color: 'white',
+    border: 'none',
+    borderRadius: '0.375rem',
+    fontSize: '1rem',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  };
+  
+  const logoutButtonHoverStyle: CSSProperties = {
+    backgroundColor: '#DC2626',
+  };
 
   const renderImage = () => {
-    if (imagePreviewUrl) { // приоритет у нового выбранного файла или существующего URL из БД
-      if (imagePreviewUrl.startsWith("blob:") || imagePreviewUrl.startsWith("http")) {
-        return <img src={imagePreviewUrl} alt={t.profilePictureLabel} style={profileImagePreviewStyle} />;
-      }
+    if (imagePreviewUrl) {
+        return <img src={imagePreviewUrl} alt={t.profilePictureLabel} style={profileImagePreviewStyle} onError={() => setImagePreviewUrl(null)} />;
     }
-    // Если profileData.profilePicUrl - это плейсхолдер или пустая строка, или imagePreviewUrl невалиден
-    if (profileData.profilePicUrl === PLACEHOLDER_NEW_IMAGE || !profileData.profilePicUrl) {
-      return <UserCircleIcon style={{ width: '80px', height: '80px', color: '#A0AEC0' }} />;
-    }
-    // Если это не плейсхолдер и не blob (т.е. старый URL из БД, который не загрузился в imagePreviewUrl)
-    // Это условие на практике не должно срабатывать, если imagePreviewUrl правильно устанавливается из profileData.profilePicUrl.
-    // Но на всякий случай, если profileData.profilePicUrl валидный URL и не плейсхолдер:
-    if (profileData.profilePicUrl && !profileData.profilePicUrl.startsWith("::placeholder")) {
-        return <img src={profileData.profilePicUrl} alt={t.profilePictureLabel} style={profileImagePreviewStyle} onError={(e) => (e.currentTarget.style.display = 'none')} />; // Hide img on error, default icon will show via next line if needed.
-    }
-    // Fallback, если onError сработало или другие условия не выполнились
     return <UserCircleIcon style={{ width: '80px', height: '80px', color: '#A0AEC0' }} />;
   };
 
@@ -310,10 +344,6 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
                 <div style={profilePicSectionStyle}>
                     <div style={imagePreviewContainerStyle}>
                         {renderImage()}
-                        {/* Fallback if image onError hides it and renderImage didn't return UserCircleIcon already */}
-                        {(!imagePreviewUrl || (imagePreviewUrl && !imagePreviewUrl.startsWith('blob:') && !imagePreviewUrl.startsWith('http'))) && (profileData.profilePicUrl === PLACEHOLDER_NEW_IMAGE || !profileData.profilePicUrl) &&
-                            <UserCircleIcon style={{ width: '80px', height: '80px', color: '#A0AEC0', position:'absolute' }} />
-                        }
                     </div>
                     <div style={{position: 'relative'}}>
                         <button type="button" style={changePhotoButtonStyling} onClick={() => setShowChangePhotoOptions(prev => !prev)}>
@@ -322,9 +352,9 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
                         {showChangePhotoOptions && (
                             <div style={photoOptionsPopupStyle}>
                                 <button type="button" style={photoOptionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = photoOptionButtonHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''} onClick={() => galleryInputRef.current?.click()}>{t.uploadPhotoButton}</button>
-                                <button type="button" style={photoOptionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = photoOptionButtonHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''} onClick={() => cameraInputRef.current?.click()}>{t.camera}</button> {/* Assuming t.camera exists */}
-                                {(imagePreviewUrl || (profileData.profilePicUrl && profileData.profilePicUrl !== PLACEHOLDER_NEW_IMAGE)) &&
-                                  <button type="button" style={{...photoOptionButtonStyle, color: '#E53E3E'}} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = photoOptionButtonHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''} onClick={handleRemovePhoto}>{t.cancelButton}</button> // Re-use cancel for "Remove"
+                                <button type="button" style={photoOptionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = photoOptionButtonHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''} onClick={() => cameraInputRef.current?.click()}>{t.camera}</button>
+                                {imagePreviewUrl &&
+                                  <button type="button" style={{...photoOptionButtonStyle, color: '#E53E3E'}} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = photoOptionButtonHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''} onClick={handleRemovePhoto}>{t.cancelButton}</button>
                                 }
                             </div>
                         )}
@@ -343,7 +373,6 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
                 </div>
             </div>
             
-            {/* Placeholder sections remain unchanged */}
             <div style={placeholderSectionStyle}>
                 <h2 style={{...labelStyle, borderBottom: '1px solid #E2E8F0', paddingBottom:'0.5rem', marginBottom: '1rem'}}>{t.activitySectionTitle}</h2>
                 <div style={placeholderItemStyle}>
@@ -373,6 +402,16 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
                  </button>
             </div>
         </form>
+        <div style={logoutSectionStyle}>
+           <button 
+             style={isLogoutHovered ? { ...logoutButtonStyle, ...logoutButtonHoverStyle } : logoutButtonStyle} 
+             onClick={onLogout}
+             onMouseEnter={() => setIsLogoutHovered(true)}
+             onMouseLeave={() => setIsLogoutHovered(false)}
+           >
+             {t.logoutButton}
+           </button>
+        </div>
       </div>
     </div>
   );
