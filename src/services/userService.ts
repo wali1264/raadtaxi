@@ -176,20 +176,21 @@ export const userService = {
           }
       }
       
-      const driverProfileDbUpdates: any = {
-          user_id: userId, 
-          updated_at: new Date().toISOString(),
-      };
+      const driverProfileDbUpdates: { [key: string]: any } = { user_id: userId };
+      
+      // Map all possible fields from profileData to their DB column names to ensure correctness
       if (profileData.vehicleModel !== undefined) driverProfileDbUpdates.vehicle_model = profileData.vehicleModel;
       if (profileData.vehicleColor !== undefined) driverProfileDbUpdates.vehicle_color = profileData.vehicleColor;
       if (profileData.plateRegion !== undefined) driverProfileDbUpdates.plate_region = profileData.plateRegion;
       if (profileData.plateNumbers !== undefined) driverProfileDbUpdates.plate_numbers = profileData.plateNumbers;
       if (profileData.plateTypeChar !== undefined) driverProfileDbUpdates.plate_type_char = profileData.plateTypeChar;
       if (profileData.alertSoundPreference !== undefined) driverProfileDbUpdates.alert_sound_preference = profileData.alertSoundPreference;
-      
-      const driverProfileFieldsToUpdate = Object.keys(driverProfileDbUpdates).filter(key => key !== 'user_id' && key !== 'updated_at');
 
-      if (driverProfileFieldsToUpdate.length > 0) {
+      const driverProfileFieldsToUpdate = Object.keys(driverProfileDbUpdates);
+      
+      // Only perform an update if there's more than just the user_id
+      if (driverProfileFieldsToUpdate.length > 1) {
+        driverProfileDbUpdates.updated_at = new Date().toISOString();
         const { error: driverProfileUpsertError } = await supabase
             .from('drivers_profile')
             .upsert(driverProfileDbUpdates, { onConflict: 'user_id' });
@@ -204,21 +205,21 @@ export const userService = {
 
   async updateDriverOnlineStatus(userId: string, isOnline: boolean) {
     const status = isOnline ? 'online' : 'offline';
-    const { data, error } = await supabase
+    // Use upsert to prevent "Driver profile not found" error for new drivers.
+    const { error } = await supabase
       .from('drivers_profile')
-      .update({ current_status: status, updated_at: new Date().toISOString() })
-      .eq('user_id', userId)
-      .select('user_id'); // Select a column to confirm a row was updated
+      .upsert(
+        { 
+          user_id: userId, 
+          current_status: status, 
+          updated_at: new Date().toISOString() 
+        },
+        { onConflict: 'user_id' }
+      );
 
     if (error) {
-      console.error("UserService: Error updating driver online status -", getDebugMessage(error), error);
+      console.error("UserService: Error upserting driver online status -", getDebugMessage(error), error);
       throw error;
-    }
-
-    if (!data || data.length === 0) {
-      const notFoundError = new Error("Driver profile not found. Cannot update status.");
-      console.error("UserService:", notFoundError.message, `(userId: ${userId})`);
-      throw notFoundError;
     }
     
     return true;

@@ -1,12 +1,53 @@
-
 import React, { CSSProperties } from 'react';
 
 export const DriverCarIcon = ({ style }: { style?: CSSProperties }) => (
-    <svg style={{ width: '2.5rem', height: '2.5rem', filter: 'drop-shadow(0px 0px 3px rgba(0,0,0,0.7))', ...style }} viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M43.0869 20.8696C42.8261 19.3478 41.5652 18.2609 40 18.2609H10C8.43478 18.2609 7.17391 19.3478 6.91304 20.8696L3.47826 34.7826C3.04348 36.8696 3.04348 38.6957 4.13043 40.2174C5.21739 41.7391 6.95652 42.6087 8.69565 42.6087H41.3043C43.0435 42.6087 44.7826 41.7391 45.8696 40.2174C46.9565 38.6957 46.9565 36.8696 46.5217 34.7826L43.0869 20.8696Z" fill="#007bff"/>
-      <path d="M39.1304 18.2609H10.8696C9.65217 18.2609 8.69565 17.3043 8.69565 16.087V13.913C8.69565 12.6957 9.65217 11.7391 10.8696 11.7391H39.1304C40.3478 11.7391 41.3043 12.6957 41.3043 13.913V16.087C41.3043 17.3043 40.3478 18.2609 39.1304 18.2609Z" fill="#87CEEB"/>
-      <path d="M13.913 22.1739H36.087V28.6957H13.913V22.1739Z" fill="#ADD8E6"/>
-      <circle cx="11.7391" cy="39.1304" r="4.34783" fill="#333333"/>
-      <circle cx="38.2609" cy="39.1304" r="4.34783" fill="#333333"/>
+    <svg 
+        style={{ width: '2.5rem', height: '2.5rem', ...style }} 
+        viewBox="-5 -5 64 118" // Add padding in viewbox for shadow and mirrors
+        xmlns="http://www.w3.org/2000/svg"
+    >
+        <defs>
+            <filter id="taxi_dropshadow" height="130%">
+                <feGaussianBlur in="SourceAlpha" stdDeviation="3"/> 
+                <feOffset dx="2" dy="3" result="offsetblur"/>
+                <feComponentTransfer>
+                    <feFuncA type="linear" slope="0.5"/>
+                </feComponentTransfer>
+                <feMerge> 
+                    <feMergeNode/>
+                    <feMergeNode in="SourceGraphic"/> 
+                </feMerge>
+            </filter>
+        </defs>
+        <g style={{ filter: 'url(#taxi_dropshadow)' }}>
+            {/* Main Body */}
+            <path d="M50,15 C50,5 40,0 27,0 C14,0 4,5 4,15 L4,90 C4,100 14,105 27,105 C40,105 50,100 50,90 Z" 
+                  fill="#FFC107" 
+                  stroke="#E6A200" 
+                  strokeWidth="1.5" />
+
+            {/* Side pillars/frame */}
+            <rect x="8" y="25" width="38" height="55" fill="none" stroke="#455A64" strokeWidth="1.5" />
+
+            {/* Front Windshield */}
+            <path d="M9,25 L45,25 L40,12 L14,12 Z" fill="#424242" stroke="#212121" strokeWidth="0.5"/>
+            {/* Rear Windshield */}
+            <path d="M9,80 L45,80 L40,93 L14,93 Z" fill="#424242" stroke="#212121" strokeWidth="0.5"/>
+
+            {/* Taxi Sign */}
+            <rect x="20" y="48" width="14" height="8" fill="#4E342E" rx="1" />
+
+            {/* Side Mirrors */}
+            <rect x="0" y="32" width="4" height="6" fill="#FFC107" stroke="#E6A200" strokeWidth="1" rx="1" />
+            <rect x="50" y="32" width="4" height="6" fill="#FFC107" stroke="#E6A200" strokeWidth="1" rx="1" />
+
+            {/* Headlights */}
+            <rect x="10" y="8" width="8" height="3" fill="#FFF9C4" rx="1" />
+            <rect x="36" y="8" width="8" height="3" fill="#FFF9C4" rx="1" />
+
+            {/* Taillights */}
+            <rect x="10" y="99" width="8" height="3" fill="#E57373" rx="1" />
+            <rect x="36" y="99" width="8" height="3" fill="#E57373" rx="1" />
+        </g>
     </svg>
-  );
+);

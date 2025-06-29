@@ -1,10 +1,11 @@
+
 import React, { useEffect, useRef, CSSProperties } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
 import { translations, Language } from '../translations';
 import { AppService, RideRequest } from '../types';
 import { getDistanceFromLatLonInKm } from '../utils/helpers';
-import { LocationMarkerIcon, DestinationMarkerIcon } from './icons'; // Removed DriverCarIcon
+import { LocationMarkerIcon, DestinationMarkerIcon, DriverCarIcon } from './icons';
 
 interface NewRideRequestPopupProps {
     currentLang: Language;
@@ -13,11 +14,11 @@ interface NewRideRequestPopupProps {
     timer: number;
     onAccept: () => void;
     onDecline: () => void;
-    // simulatedDriverLocation prop removed
+    driverLocation: { lat: number, lng: number } | null;
 }
 
 export const NewRideRequestPopup: React.FC<NewRideRequestPopupProps> = ({
-    currentLang, request, allAppServices, timer, onAccept, onDecline
+    currentLang, request, allAppServices, timer, onAccept, onDecline, driverLocation
 }) => {
     const t = translations[currentLang];
     const isRTL = currentLang !== 'en';
@@ -27,10 +28,12 @@ export const NewRideRequestPopup: React.FC<NewRideRequestPopupProps> = ({
     const service = allAppServices.find(s => s.id === request.service_id);
     const serviceName = service ? (t[service.nameKey] || request.service_id) : t.defaultServiceName;
 
-    // distanceToPickup calculation removed as simulatedDriverLocation is removed
+    const distanceToPickup = driverLocation 
+      ? getDistanceFromLatLonInKm(driverLocation.lat, driverLocation.lng, request.origin_lat, request.origin_lng)
+      : null;
 
     const estimatedTotalTripTime = Math.round(
-        getDistanceFromLatLonInKm(request.origin_lat, request.origin_lng, request.destination_lat, request.destination_lng) * 2.5 + 10 // km * 2.5 min/km + 10 min base
+        getDistanceFromLatLonInKm(request.origin_lat, request.origin_lng, request.destination_lat, request.destination_lng) * 2.5 + 5 // km * 2.5 min/km + 5 min base
     );
 
 
@@ -55,7 +58,11 @@ export const NewRideRequestPopup: React.FC<NewRideRequestPopupProps> = ({
                 }
             });
 
-            // DriverCarIcon marker removed
+            if (driverLocation) {
+                const driverIconHTML = ReactDOMServer.renderToString(<DriverCarIcon style={{width: '2.5rem', height: '2.5rem'}}/>);
+                const driverLeafletIcon = L.divIcon({ html: driverIconHTML, className: 'driver-popup-icon', iconSize: [30,30], iconAnchor: [15,15] });
+                L.marker([driverLocation.lat, driverLocation.lng], { icon: driverLeafletIcon, zIndexOffset: 100 }).addTo(mapInstance.current);
+            }
 
             const originIconHTML = ReactDOMServer.renderToString(<LocationMarkerIcon color="#34A853" style={{width: '2rem', height: '2rem'}}/>);
             const originLeafletIcon = L.divIcon({ html: originIconHTML, className: 'origin-popup-icon', iconSize: [24,24], iconAnchor: [12,24] });
@@ -64,18 +71,28 @@ export const NewRideRequestPopup: React.FC<NewRideRequestPopupProps> = ({
             const destIconHTML = ReactDOMServer.renderToString(<DestinationMarkerIcon color="#EA4335" style={{width: '2rem', height: '2rem'}}/>);
             const destLeafletIcon = L.divIcon({ html: destIconHTML, className: 'dest-popup-icon', iconSize: [24,24], iconAnchor: [12,12] });
             L.marker([request.destination_lat, request.destination_lng], { icon: destLeafletIcon }).addTo(mapInstance.current);
-
-            const bounds = L.latLngBounds([
-                //simulatedDriverLocation removed from bounds
+            
+            const boundsToShow: L.LatLngExpression[] = [
                 [request.origin_lat, request.origin_lng],
                 [request.destination_lat, request.destination_lng]
-            ]);
-            mapInstance.current.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+            ];
+            if (driverLocation) {
+                boundsToShow.push([driverLocation.lat, driverLocation.lng]);
+            }
 
-            L.polyline([[request.origin_lat, request.origin_lng], [request.destination_lat, request.destination_lng]], { color: '#4285F4', weight: 3 }).addTo(mapInstance.current);
+            const bounds = L.latLngBounds(boundsToShow);
+            mapInstance.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+
+            // Main trip route
+            L.polyline([[request.origin_lat, request.origin_lng], [request.destination_lat, request.destination_lng]], { color: '#4285F4', weight: 4, opacity: 0.8 }).addTo(mapInstance.current);
+
+            // Dashed line from driver to pickup
+            if (driverLocation) {
+                 L.polyline([[driverLocation.lat, driverLocation.lng], [request.origin_lat, request.origin_lng]], { color: '#5f6368', weight: 3, dashArray: '6, 6', opacity: 0.9 }).addTo(mapInstance.current);
+            }
         }
 
-    }, [request]);
+    }, [request, driverLocation]);
 
     const popupStyle: CSSProperties = {
         position: 'fixed',
@@ -85,7 +102,7 @@ export const NewRideRequestPopup: React.FC<NewRideRequestPopupProps> = ({
         width: '90%',
         maxWidth: '450px',
         height: 'auto',
-        maxHeight: '85vh',
+        maxHeight: '90vh',
         backgroundColor: 'white',
         borderRadius: '1rem',
         boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
@@ -160,6 +177,14 @@ export const NewRideRequestPopup: React.FC<NewRideRequestPopupProps> = ({
     const acceptBtnStyle: CSSProperties = { ...buttonBaseStyle, backgroundColor: '#34a853', color: 'white' };
     const declineBtnStyle: CSSProperties = { ...buttonBaseStyle, backgroundColor: '#ea4335', color: 'white' };
 
+    const handleAcceptClick = () => {
+        onAccept();
+    };
+
+    const handleDeclineClick = () => {
+        onDecline();
+    };
+
     return (
         <div style={popupStyle}>
             <div ref={mapRef} style={mapContainerStyle} aria-label={t.mapScreenTitleOrigin + " and " + t.mapScreenTitleDestination}></div>
@@ -180,10 +205,17 @@ export const NewRideRequestPopup: React.FC<NewRideRequestPopupProps> = ({
                       {t.earningsAmountUnit.replace('{amount}', Math.round(request.estimated_fare ?? 0).toLocaleString(isRTL ? 'fa-IR' : 'en-US'))}
                     </span>
                 </div>
-                {/* Distance to Pickup removed */}
+                <div style={detailItemStyle}>
+                    <span style={detailLabelStyle}>{t.distanceToPickupLabel}:</span>
+                    <span style={detailValueStyle}>
+                        {distanceToPickup !== null 
+                            ? `${distanceToPickup.toLocaleString(isRTL ? 'fa-IR' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km` 
+                            : t.dataMissing}
+                    </span>
+                </div>
                 <div style={detailItemStyle}>
                     <span style={detailLabelStyle}>{t.estimatedTripTimeLabel}:</span>
-                    <span style={detailValueStyle}>{estimatedTotalTripTime} {t.etaUnitMinutes}</span>
+                    <span style={detailValueStyle}>{estimatedTotalTripTime.toLocaleString(isRTL ? 'fa-IR' : 'en-US')} {t.etaUnitMinutes}</span>
                 </div>
                 <div style={{...detailItemStyle, borderBottom: 'none'}}>
                     <span style={detailLabelStyle}>{t.serviceCategoryPassenger}:</span>
@@ -196,8 +228,8 @@ export const NewRideRequestPopup: React.FC<NewRideRequestPopupProps> = ({
                 </div>
 
                 <div style={buttonContainerStyle}>
-                    <button style={declineBtnStyle} onClick={onDecline}>{t.declineButton}</button>
-                    <button style={acceptBtnStyle} onClick={onAccept}>{t.acceptRideButton}</button>
+                    <button style={declineBtnStyle} onClick={handleDeclineClick}>{t.declineButton}</button>
+                    <button style={acceptBtnStyle} onClick={handleAcceptClick}>{t.acceptRideButton}</button>
                 </div>
             </div>
         </div>

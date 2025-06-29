@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -24,6 +23,24 @@ interface DriverDashboardScreenProps {
 const PROXIMITY_THRESHOLD_KM = 0.1; // 100 meters
 const POPUP_TIMEOUT_SECONDS = 30; 
 
+// --- Local Icon Components for New Header ---
+const PowerIcon = ({ style }: { style?: CSSProperties }) => (
+    <svg style={{ width: '1.75rem', height: '1.75rem', ...style }} viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+        <line x1="12" y1="2" x2="12" y2="12"></line>
+    </svg>
+);
+
+const LogoutIcon = ({ style }: { style?: CSSProperties }) => (
+    <svg style={{ width: '1.5rem', height: '1.5rem', ...style }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+      <polyline points="16 17 21 12 16 7"></polyline>
+      <line x1="21" y1="12" x2="9" y2="12"></line>
+    </svg>
+);
+// --- End Local Icon Components ---
+
+
 export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps): JSX.Element => {
   const { 
     currentLang, 
@@ -35,8 +52,10 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
   const isRTL = currentLang !== 'en';
   const [isOnline, setIsOnline] = useState(false);
+  const [isTogglePressed, setIsTogglePressed] = useState(false);
   // dailyEarnings state is kept for potential future logic, though UI element was removed.
   const [driverProfile, setDriverProfile] = useState<Partial<DriverProfileData>>({});
+  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement>(null);
 
 
@@ -132,7 +151,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     try {
         const fetchOptions: RequestInit = {
             method: 'GET',
-            headers: { 'User-Agent': APP_USER_AGENT },
             mode: 'cors',
             referrerPolicy: 'strict-origin-when-cross-origin'
         };
@@ -224,6 +242,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       locationWatchIdRef.current = navigator.geolocation.watchPosition(
         async (position) => {
           const { latitude, longitude, heading } = position.coords;
+          setDriverLocation({ lat: latitude, lng: longitude });
           try {
             await supabase.from('driver_locations').upsert({
                 driver_id: loggedInUserId, latitude: latitude, longitude: longitude,
@@ -242,6 +261,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 } 
       );
     } else {
+      setDriverLocation(null);
       if (locationWatchIdRef.current !== null) { navigator.geolocation.clearWatch(locationWatchIdRef.current); locationWatchIdRef.current = null; }
     }
     return () => { if (locationWatchIdRef.current !== null) navigator.geolocation.clearWatch(locationWatchIdRef.current); };
@@ -505,7 +525,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     try {
         const fetchOptions: RequestInit = {
             method: 'GET',
-            headers: { 'User-Agent': APP_USER_AGENT },
             mode: 'cors',
             referrerPolicy: 'strict-origin-when-cross-origin'
         };
@@ -685,36 +704,81 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loggedInUserId]);
 
+
+  // --- STYLES ---
+
   const driverDashboardPageStyle: CSSProperties = { fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', direction: isRTL ? 'rtl' : 'ltr', width: '100%', height: '100vh', position: 'relative', overflow: 'hidden', };
   const mapBackgroundStyle: CSSProperties = { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0, };
-  const contentOverlayStyle: CSSProperties = { position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', padding: '1rem', boxSizing: 'border-box', maxWidth: '600px', margin: '0 auto', backgroundColor: 'rgba(244, 246, 248, 0.0)', };
-  const headerStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', pointerEvents: 'auto', backgroundColor: 'rgba(255, 255, 255, 0.85)', padding: '0.75rem 1rem', borderRadius: '0.5rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', };
-  const headerActionsStyle: CSSProperties = { display: 'flex', gap: '0.75rem', alignItems: 'center'};
-  const headerButtonStyle: CSSProperties = { padding: '0.5rem 0.75rem', fontSize: '0.875rem', color: '#2d3748', backgroundColor: 'rgba(255,255,255,0.9)', border: '1px solid #cbd5e0', borderRadius: '0.375rem', cursor: 'pointer', transition: 'background-color 0.2s, opacity 0.2s', display: 'flex', alignItems: 'center', gap: '0.35rem' };
-  const headerButtonHoverStyle: CSSProperties = { backgroundColor: '#e2e8f0' };
-  const badgeStyle: CSSProperties = { backgroundColor: '#e53e3e', color: 'white', fontSize: '0.7rem', fontWeight: 'bold', padding: '0.1rem 0.4rem', borderRadius: '50%', minWidth: '1rem', textAlign: 'center' };
-  const logoutButtonStyle: CSSProperties = { padding: '0.6rem 1rem', fontSize: '0.9rem', color: 'white', backgroundColor: '#e53e3e', border: 'none', borderRadius: '0.375rem', cursor: 'pointer', transition: 'background-color 0.2s', };
-  const logoutButtonHoverStyle: CSSProperties = { backgroundColor: '#c53030' };
+  const contentOverlayStyle: CSSProperties = { position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', padding: '1rem', boxSizing: 'border-box', maxWidth: '1400px', margin: '0 auto', backgroundColor: 'rgba(244, 246, 248, 0.0)', };
   
-  const statusToggleStyle: CSSProperties = { 
-    width: '2.25rem',
-    height: '2.25rem',
-    backgroundColor: isOnline ? 'rgba(72, 187, 120, 0.9)' : 'rgba(160, 174, 192, 0.9)', 
-    border: 'none', 
-    borderRadius: '50%', // Make it circular
-    cursor: !isUserVerified ? 'not-allowed' : 'pointer', 
+  const headerStyle: CSSProperties = { 
     display: 'flex', 
+    justifyContent: 'space-between', 
     alignItems: 'center', 
-    justifyContent: 'center', 
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)', 
-    transition: 'background-color 0.3s, opacity 0.3s', 
-    pointerEvents: 'auto',
-    opacity: !isUserVerified ? 0.6 : 1,
+    marginBottom: '1rem', 
+    pointerEvents: 'auto', 
+    padding: '0.5rem', 
+    boxSizing: 'border-box',
+    width: '100%',
   };
   
+  const statusToggleContainerStyle: CSSProperties = {
+    perspective: '500px', // For 3D effect
+  };
+  const statusToggleStyle = (isPressed: boolean): CSSProperties => ({ 
+    width: '4rem', height: '4rem',
+    backgroundColor: isOnline ? '#2ECC71' : '#95A5A6', 
+    border: `2px solid ${isOnline ? '#27AE60' : '#7F8C8D'}`,
+    borderRadius: '50%',
+    cursor: !isUserVerified ? 'not-allowed' : 'pointer', 
+    display: 'flex', alignItems: 'center', justifyContent: 'center', 
+    color: 'white',
+    boxShadow: isPressed 
+      ? `inset 0 5px 15px rgba(0,0,0,0.4)` 
+      : `0 8px 15px rgba(0,0,0,0.2), inset 0 -4px 5px ${isOnline ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.2)'}`,
+    transition: 'all 0.15s ease-out', 
+    transform: isPressed ? 'scale(0.95)' : 'scale(1)',
+    opacity: !isUserVerified ? 0.6 : 1,
+  });
+
+  const headerActionsStyle: CSSProperties = { display: 'flex', gap: '0.75rem', alignItems: 'center'};
+  const iconButtonStyle = (isDisabled: boolean): CSSProperties => ({
+      width: '2.75rem', height: '2.75rem',
+      backgroundColor: 'white',
+      border: '1px solid #E2E8F0',
+      borderRadius: '50%',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: isDisabled ? 'not-allowed' : 'pointer',
+      color: '#4A5568',
+      boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+      transition: 'all 0.2s ease-out',
+      opacity: isDisabled ? 0.6 : 1,
+      position: 'relative', // For badge positioning
+  });
+  const iconButtonHoverStyle: CSSProperties = {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
+  };
+
+  const badgeStyle: CSSProperties = { 
+    position: 'absolute',
+    top: '-2px',
+    right: '-2px',
+    backgroundColor: '#E53E3E', 
+    color: 'white', 
+    fontSize: '0.75rem', 
+    fontWeight: 'bold', 
+    width: '1.25rem',
+    height: '1.25rem',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: '2px solid white',
+  };
+
   const cardsAreaStyle: CSSProperties = { flexGrow: 1, overflowY: 'auto', pointerEvents: 'auto', paddingTop: '1rem', paddingBottom: '1rem', WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 30px), transparent 100%)', maskImage: 'linear-gradient(to bottom, black calc(100% - 30px), transparent 100%)', };
   const cardStyle: CSSProperties = { backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: '1rem', borderRadius: '0.5rem', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', marginBottom: '1rem', };
-  const cardTitleStyle: CSSProperties = { fontSize: '1rem', fontWeight: '600', color: '#2d3748', marginBottom: '0.75rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem', };
   const requestItemStyle: CSSProperties = { padding: '0.8rem', border: '1px solid #edf2f7', borderRadius: '0.375rem', marginBottom: '0.75rem', backgroundColor: 'rgba(249, 250, 251, 0.95)', };
   const requestDetailRowStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', fontSize: '0.85rem', };
   const requestLabelStyle: CSSProperties = { color: '#718096', fontWeight: 500 };
@@ -736,19 +800,35 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       <div ref={mapContainerRef} style={mapBackgroundStyle} />
       <div style={contentOverlayStyle}>
         <header style={headerStyle}>
-          <button 
-            style={statusToggleStyle} 
-            onClick={toggleOnlineStatus}
-            disabled={!isUserVerified}
-            aria-label={isOnline ? t.driverStatusOnline : t.driverStatusOffline}
-          >
-            {/* No visible content, color indicates status. ARIA label provides info. */}
-          </button>
+          <div style={statusToggleContainerStyle}>
+            <button 
+              style={statusToggleStyle(isTogglePressed)} 
+              onClick={toggleOnlineStatus}
+              onMouseDown={() => { if(isUserVerified) setIsTogglePressed(true); }}
+              onMouseUp={() => setIsTogglePressed(false)}
+              onMouseLeave={() => setIsTogglePressed(false)}
+              onTouchStart={() => { if(isUserVerified) setIsTogglePressed(true); }}
+              onTouchEnd={() => setIsTogglePressed(false)}
+              disabled={!isUserVerified}
+              aria-label={isOnline ? t.driverStatusOnline : t.driverStatusOffline}
+            >
+              <PowerIcon style={{ color: isOnline ? '#FFF' : '#E2E8F0' }}/>
+            </button>
+          </div>
           <div style={headerActionsStyle}>
-            <button style={{...headerButtonStyle, ...(!!currentTrip ? { opacity: 0.6, cursor: 'not-allowed'} : {})}} onMouseEnter={(e) => {if (!currentTrip) e.currentTarget.style.backgroundColor = headerButtonHoverStyle.backgroundColor!}} onMouseLeave={(e) => {if (!currentTrip) e.currentTarget.style.backgroundColor = headerButtonStyle.backgroundColor!}} onClick={() => setShowIncomingDrawer(true)} aria-haspopup="true" aria-expanded={showIncomingDrawer} disabled={!!currentTrip} > <ListIcon style={{fontSize: '1.1rem'}}/> {t.requestsButton} {(timedOutOrDeclinedRequests.length + allPendingRequests.length) > 0 && <span style={badgeStyle}>{timedOutOrDeclinedRequests.length + allPendingRequests.length}</span>} </button>
-            <button style={{...headerButtonStyle, ...(!currentTrip ? { opacity: 0.6, cursor: 'not-allowed'} : {})}} onMouseEnter={(e) => {if (currentTrip) e.currentTarget.style.backgroundColor = headerButtonHoverStyle.backgroundColor!}} onMouseLeave={(e) => {if (currentTrip) e.currentTarget.style.backgroundColor = headerButtonStyle.backgroundColor!}} onClick={() => setShowCurrentTripDrawer(true)} aria-haspopup="true" aria-expanded={showCurrentTripDrawer} disabled={!currentTrip} > <CarIcon style={{fontSize: '1.1rem'}}/> {t.activeTripButton} </button>
-            <button style={headerButtonStyle} onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = headerButtonHoverStyle.backgroundColor!)} onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = headerButtonStyle.backgroundColor!)} onClick={() => setShowProfileModal(true)} aria-label={t.profileButtonAriaLabel} > <ProfileIcon style={{fontSize: '1.1rem'}}/> </button>
-            <button style={logoutButtonStyle} onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = logoutButtonHoverStyle.backgroundColor!)} onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = logoutButtonStyle.backgroundColor!)} onClick={onLogout} > {t.logoutButton} </button>
+            <button style={iconButtonStyle(!!currentTrip)} onMouseEnter={(e) => {if (!currentTrip) e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'}} onMouseLeave={(e) => {if (!currentTrip) e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'}} onClick={() => setShowIncomingDrawer(true)} aria-label={t.requestsButton} aria-haspopup="true" aria-expanded={showIncomingDrawer} disabled={!!currentTrip} > 
+                <ListIcon /> 
+                {(timedOutOrDeclinedRequests.length + allPendingRequests.length) > 0 && <span style={badgeStyle}>{(timedOutOrDeclinedRequests.length + allPendingRequests.length)}</span>} 
+            </button>
+            <button style={iconButtonStyle(!currentTrip)} onMouseEnter={(e) => {if (currentTrip) e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'}} onMouseLeave={(e) => {if (currentTrip) e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'}} onClick={() => setShowCurrentTripDrawer(true)} aria-label={t.activeTripButton} aria-haspopup="true" aria-expanded={showCurrentTripDrawer} disabled={!currentTrip} > 
+                <CarIcon /> 
+            </button>
+            <button style={iconButtonStyle(false)} onMouseEnter={(e) => e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'} onMouseLeave={(e) => e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'} onClick={() => setShowProfileModal(true)} aria-label={t.profileButtonAriaLabel} > 
+                <ProfileIcon /> 
+            </button>
+            <button style={iconButtonStyle(false)} onMouseEnter={(e) => e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'} onMouseLeave={(e) => e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'} onClick={onLogout} aria-label={t.logoutButton}> 
+                <LogoutIcon />
+            </button>
           </div>
         </header>
         
@@ -767,7 +847,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         </div>
       </div>
       <button style={gpsFabStyle} onClick={handleLocateDriver} aria-label={t.gpsButtonAriaLabel} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'} onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'} onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'} > <GpsIcon style={{ color: '#007AFF', width: '1.75rem', height: '1.75rem' }} /> </button>
-      {requestInPopup && isOnline && isUserVerified && !currentTrip && ( <NewRideRequestPopup currentLang={currentLang} request={requestInPopup} allAppServices={allAppServices} timer={popupTimer} onAccept={() => handleAcceptRequest(requestInPopup)} onDecline={handleDeclineRequestFromPopup} /> )}
+      {requestInPopup && isOnline && isUserVerified && !currentTrip && ( <NewRideRequestPopup currentLang={currentLang} request={requestInPopup} allAppServices={allAppServices} timer={popupTimer} onAccept={() => handleAcceptRequest(requestInPopup)} onDecline={handleDeclineRequestFromPopup} driverLocation={driverLocation} /> )}
       <DriverProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} currentLang={currentLang} loggedInUserId={loggedInUserId} />
       <DrawerPanel currentLang={currentLang} isOpen={showIncomingDrawer} onClose={() => setShowIncomingDrawer(false)} title={t.incomingRequestsDrawerTitle} side={isRTL ? 'right' : 'left'} >
         {currentTrip ? (
@@ -801,7 +881,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
             {timedOutOrDeclinedRequests.length > 0 && (
                 <>
-                    <h4 style={{...cardTitleStyle, marginTop: '1.5rem', fontSize: '0.9rem'}}>{isRTL ? 'رد شده / بدون پاسخ' : 'Declined / Unanswered'}</h4>
+                    <h4 style={{...noDataTextStyle, marginTop: '1.5rem', fontSize: '0.9rem', borderTop: '1px solid #e0e0e0', paddingTop: '1rem'}}>{isRTL ? 'رد شده / بدون پاسخ' : 'Declined / Unanswered'}</h4>
                     {timedOutOrDeclinedRequests.map(req => (
                         <div key={`declined-${req.id}`} style={{...requestItemStyle, opacity: 0.8, backgroundColor: 'rgba(254, 226, 226, 0.5)'}}>
                             <div style={requestDetailRowStyle}> <span style={requestLabelStyle}>{t.requestPassengerLabel}:</span> <span style={requestValueStyle}>{req.passenger_name || (isRTL ? 'نامشخص' : 'N/A')}</span> </div>

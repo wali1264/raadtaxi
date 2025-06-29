@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react'; // Added useContext
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -90,7 +89,6 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     try { 
         const fetchOptions: RequestInit = {
             method: 'GET',
-            headers: { 'User-Agent': APP_USER_AGENT },
             mode: 'cors',
             referrerPolicy: 'strict-origin-when-cross-origin'
         };
@@ -104,7 +102,6 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         const bounds = map.getBounds(); const viewbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`; 
         const fetchOptions: RequestInit = {
             method: 'GET',
-            headers: { 'User-Agent': APP_USER_AGENT },
             mode: 'cors',
             referrerPolicy: 'strict-origin-when-cross-origin'
         };
@@ -329,7 +326,6 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const calculateRouteDistance = async (origin: {lat: number, lng: number}, destination: {lat: number, lng: number}) => { setIsCalculatingDistance(true); setDistanceError(null); setRouteDistanceKm(null); try { 
     const fetchOptions: RequestInit = {
         method: 'GET',
-        headers: { 'User-Agent': APP_USER_AGENT },
         mode: 'cors',
         referrerPolicy: 'strict-origin-when-cross-origin'
     };
@@ -466,6 +462,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         }
         
         const fullDriverProfile = await userService.fetchDriverProfile(updatedRequest.driver_id);
+        const driverPlateNumbers = fullDriverProfile.plateNumbers;
         
         let profilePicUrl = '';
         if (fullDriverProfile.profilePicUrl) {
@@ -484,7 +481,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
             vehicleColor: fullDriverProfile.vehicleColor || t.dataMissing,
             plateParts: { 
                 region: fullDriverProfile.plateRegion || "N/A", 
-                numbers: fullDriverProfile.plateNumbers || t.dataMissing, 
+                numbers: driverPlateNumbers || t.dataMissing, 
                 type: fullDriverProfile.plateTypeChar || "-"
             }, 
             profilePicUrl: profilePicUrl,
@@ -729,6 +726,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
           // 2. Fetch driver details and set UI state
           try {
               const fullDriverProfile = await userService.fetchDriverProfile(activeTrip.driver_id);
+              const driverPlateNumbers = fullDriverProfile.plateNumbers;
+
               let profilePicUrl = '';
               if (fullDriverProfile.profilePicUrl) {
                   try {
@@ -747,7 +746,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
                   serviceId: serviceForTrip?.id || 'car',
                   vehicleModel: fullDriverProfile.vehicleModel || t.dataMissing,
                   vehicleColor: fullDriverProfile.vehicleColor || t.dataMissing,
-                  plateParts: { region: fullDriverProfile.plateRegion || "N/A", numbers: fullDriverProfile.plateNumbers || t.dataMissing, type: fullDriverProfile.plateTypeChar || "-" },
+                  plateParts: { region: fullDriverProfile.plateRegion || "N/A", numbers: driverPlateNumbers || t.dataMissing, type: fullDriverProfile.plateTypeChar || "-" },
                   profilePicUrl: profilePicUrl,
                   driverId: activeTrip.driver_id,
                   phoneNumber: fullDriverProfile.phoneNumber || t.dataMissing,

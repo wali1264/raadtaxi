@@ -1,10 +1,9 @@
 import React, { useState, useEffect, CSSProperties, useRef } from 'react';
-// supabase client removed, will use userService
 import { translations, Language } from '../translations';
 import { DriverProfileData, PredefinedSound } from '../types';
-import { CloseIcon, UserCircleIcon as DefaultProfileIcon, EditIcon } from '../components/icons'; // Added UserCircleIcon & EditIcon
-import { userService } from '../services/userService'; // Import userService
-import { getDebugMessage } from '../utils/helpers'; // For robust error logging
+import { CloseIcon, UserCircleIcon as DefaultProfileIcon, EditIcon } from '../components/icons';
+import { userService } from '../services/userService';
+import { getDebugMessage } from '../utils/helpers';
 
 interface DriverProfileModalProps {
     isOpen: boolean;
@@ -37,7 +36,6 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
     });
     const [initialProfileData, setInitialProfileData] = useState<Partial<DriverProfileData>>({});
     const [pinFromDb, setPinFromDb] = useState<string>('');
-    const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
     const [selectedCustomSoundFile, setSelectedCustomSoundFile] = useState<File | null>(null);
 
@@ -47,11 +45,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
     const [hasChanges, setHasChanges] = useState(false);
     const [imageLoadError, setImageLoadError] = useState(false);
 
-    const galleryInputRef = useRef<HTMLInputElement>(null);
-    const cameraInputRef = useRef<HTMLInputElement>(null);
     const customSoundInputRef = useRef<HTMLInputElement>(null);
-    const [showChangePhotoOptions, setShowChangePhotoOptions] = useState(false);
-
 
     useEffect(() => {
         if (isOpen && loggedInUserId) {
@@ -59,10 +53,8 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
                 setIsLoading(true);
                 setError(null);
                 setSuccessMessage(null);
-                setSelectedImageFile(null);
                 setImagePreviewUrl(null);
                 setSelectedCustomSoundFile(null);
-                setShowChangePhotoOptions(false);
                 setImageLoadError(false);
                 try {
                     const fetchedData = await userService.fetchDriverProfile(loggedInUserId);
@@ -104,15 +96,12 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
     useEffect(() => {
         const checkChanges = () => {
             if (!initialProfileData) return false;
-            if (selectedImageFile) return true;
             if (selectedCustomSoundFile) return true;
-            // Check if photo was removed
-            if (initialProfileData.profilePicUrl && !profileData.profilePicUrl) return true;
 
             const fieldsToCompare: (keyof DriverProfileData)[] = [
                 'fullName', 'vehicleModel', 'vehicleColor', 
                 'plateRegion', 'plateNumbers', 'plateTypeChar',
-                'alertSoundPreference'
+                'alertSoundPreference', 'profilePicUrl'
             ];
     
             for (const key of fieldsToCompare) {
@@ -123,44 +112,24 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
             return false;
         };
         setHasChanges(checkChanges());
-    }, [profileData, selectedImageFile, initialProfileData, selectedCustomSoundFile]);
+    }, [profileData, initialProfileData, selectedCustomSoundFile]);
 
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setProfileData(prev => ({ ...prev, [name]: value }));
+        
+        if (name === 'profilePicUrl') {
+            setImagePreviewUrl(value);
+            setImageLoadError(false);
+        }
+
         if (name === 'alertSoundPreference' && !value.startsWith('custom:')) {
             setSelectedCustomSoundFile(null);
         }
         setSuccessMessage(null); 
         setError(null);
     };
-
-    const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (file) {
-          setSelectedImageFile(file);
-          const previewUrl = URL.createObjectURL(file);
-          setImagePreviewUrl(previewUrl);
-          setProfileData(prev => ({...prev, profilePicUrl: previewUrl }));
-          setImageLoadError(false);
-          setSuccessMessage(null);
-          setError(null);
-          setShowChangePhotoOptions(false);
-        }
-        if(event.target) event.target.value = ''; 
-    };
-    
-    const handleRemovePhoto = () => {
-        setSelectedImageFile(null);
-        setImagePreviewUrl(null);
-        setProfileData(prev => ({ ...prev, profilePicUrl: '' })); 
-        setImageLoadError(false);
-        setSuccessMessage(null);
-        setError(null);
-        setShowChangePhotoOptions(false);
-    };
-
 
     const handleCustomSoundFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -184,54 +153,41 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
     
         try {
             const dataToUpdate: Partial<DriverProfileData> = {};
-            let newUrl: string | undefined = undefined;
 
-            // Step 1: Handle image upload/deletion
-            if (selectedImageFile) {
-                // If there's an old picture, delete it first.
-                if (initialProfileData.profilePicUrl) {
-                    await userService.deleteProfilePicture(initialProfileData.profilePicUrl);
-                }
-                newUrl = await userService.uploadProfilePicture(loggedInUserId, selectedImageFile);
-            } else if (initialProfileData.profilePicUrl && !profileData.profilePicUrl) {
-                // This means the user removed the photo
-                await userService.deleteProfilePicture(initialProfileData.profilePicUrl);
-                newUrl = ''; // Set to empty string to clear it
-            }
-
-            // Step 2: Prepare data for DB update
-            const fieldsToCompare: (keyof Omit<DriverProfileData, 'userId'|'phoneNumber'|'profilePicUrl'>)[] = [
+            const fieldsToCompare: (keyof Omit<DriverProfileData, 'userId'|'phoneNumber'>)[] = [
                 'fullName', 'vehicleModel', 'vehicleColor', 
-                'plateRegion', 'plateNumbers', 'plateTypeChar', 'alertSoundPreference'
+                'plateRegion', 'plateNumbers', 'plateTypeChar', 'alertSoundPreference', 'profilePicUrl'
             ];
+            
+            let photoUrlChanged = false;
+
             fieldsToCompare.forEach(key => {
-                if((profileData[key] || '') !== (initialProfileData[key] || '')) {
-                    (dataToUpdate as any)[key] = profileData[key];
+                const currentValue = (profileData[key] || '').toString();
+                const initialValue = (initialProfileData[key] || '').toString();
+
+                if (currentValue !== initialValue) {
+                    if (key === 'profilePicUrl') {
+                        photoUrlChanged = true;
+                    } else {
+                        (dataToUpdate as any)[key] = profileData[key];
+                    }
                 }
             });
 
-            // If URL changed, add it to the update payload
-            if (newUrl !== undefined) {
-                 dataToUpdate.profilePicUrl = JSON.stringify({ pin: pinFromDb, url: newUrl });
+            if (photoUrlChanged) {
+                dataToUpdate.profilePicUrl = JSON.stringify({ pin: pinFromDb, url: profileData.profilePicUrl || '' });
             }
     
-            // Step 3: Update DB if there are any changes
             if (Object.keys(dataToUpdate).length > 0) {
                  await userService.updateDriverProfile(loggedInUserId, dataToUpdate);
             }
             
-            // Step 4: Update local state after successful save
-            const newInitialState = { ...profileData, profilePicUrl: newUrl !== undefined ? newUrl : initialProfileData.profilePicUrl };
-            
+            const newInitialState = { ...initialProfileData, ...profileData };
             setInitialProfileData(newInitialState);
-            setProfileData(newInitialState);
-            if (newUrl !== undefined) {
-                setImagePreviewUrl(newUrl || null);
-            }
+            setImagePreviewUrl(profileData.profilePicUrl || null);
             setImageLoadError(false);
             
             setSuccessMessage(t.profileUpdatedSuccessfully);
-            setSelectedImageFile(null); 
             setSelectedCustomSoundFile(null);
             setHasChanges(false);
     
@@ -262,26 +218,9 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
     const plateInputsContainerStyle: CSSProperties = { display: 'flex', gap: '0.75rem', alignItems: 'flex-end' };
     const plateInputStyle: CSSProperties = { ...inputStyle, flex: 1 };
 
-    const profilePicContainerStyle: CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '1.5rem', };
+    const profilePicContainerStyle: CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '1rem', };
     const imagePreviewContainerStyle: CSSProperties = { width: '100px', height: '100px', borderRadius: '50%', backgroundColor: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: '1rem', border: '3px solid white', boxShadow: '0 0 10px rgba(0,0,0,0.1)' };
     const profileImagePreviewStyleElement: CSSProperties = { width: '100%', height: '100%', objectFit: 'cover' };
-    
-    const changePhotoButtonStyling: CSSProperties = {
-        backgroundColor: '#EDF2F7', color: '#4A5568', border: 'none', borderRadius: '0.375rem',
-        padding: '0.5rem 1rem', fontSize: '0.875rem', cursor: 'pointer', fontWeight: 500,
-        display: 'inline-flex', alignItems: 'center', gap: '0.3rem'
-    };
-    const photoOptionsPopupStyle: CSSProperties = {
-        position: 'absolute', backgroundColor: 'white', borderRadius: '0.375rem',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 20, marginTop: '0.5rem',
-        border: '1px solid #E2E8F0', width: '180px', transform: isRTL ? 'translateX(50%) right(50%)' : 'translateX(-50%) left(50%)'
-    };
-    const photoOptionButtonStyle: CSSProperties = {
-        display: 'block', width: '100%', padding: '0.75rem 1rem', textAlign: isRTL ? 'right' : 'left',
-        background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem',
-    };
-    const photoOptionButtonHoverStyle: CSSProperties = { backgroundColor: '#F7FAFC' };
-
     
     const actionsContainerStyle: CSSProperties = { marginTop: '1.5rem', display: 'flex', justifyContent: isRTL ? 'flex-start' : 'flex-end', gap: '0.75rem', paddingTop: '1rem', borderTop: '1px solid #e0e0e0'};
     const buttonBaseStyle: CSSProperties = { padding: '0.6rem 1.2rem', border: 'none', borderRadius: '0.375rem', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer', transition: 'background-color 0.2s' };
@@ -330,7 +269,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
                 {error && !isLoading && <p style={errorMessageStyle}>{error}</p>}
                 {successMessage && !isLoading && <p style={successMessageStyle}>{successMessage}</p>}
 
-                {!isLoading && ( // Removed !error from condition to show form even if initial load fails
+                {!isLoading && (
                     <form onSubmit={handleSaveChanges}>
                         <div style={formSectionStyle}>
                             <h3 style={sectionTitleStyle}>{t.personalInfoSectionTitle}</h3>
@@ -338,22 +277,19 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
                                 <div style={imagePreviewContainerStyle}>
                                     {renderProfileImage()}
                                 </div>
-                                <div style={{position: 'relative'}}>
-                                    <button type="button" style={changePhotoButtonStyling} onClick={() => setShowChangePhotoOptions(prev => !prev)}>
-                                        <EditIcon style={{width: '0.9rem', height: '0.9rem'}}/> {t.editButton} {t.profilePictureLabel}
-                                    </button>
-                                    {showChangePhotoOptions && (
-                                        <div style={photoOptionsPopupStyle}>
-                                            <button type="button" style={photoOptionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = photoOptionButtonHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''} onClick={() => galleryInputRef.current?.click()}>{t.uploadPhotoButton}</button>
-                                            <button type="button" style={photoOptionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = photoOptionButtonHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''} onClick={() => cameraInputRef.current?.click()}>{t.camera}</button>
-                                            {imagePreviewUrl &&
-                                              <button type="button" style={{...photoOptionButtonStyle, color: '#E53E3E'}} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = photoOptionButtonHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''} onClick={handleRemovePhoto}>{t.cancelButton}</button>
-                                            }
-                                        </div>
-                                    )}
-                                </div>
-                                <input type="file" accept="image/*" ref={galleryInputRef} onChange={handleFileSelect} style={{display: 'none'}} />
-                                <input type="file" accept="image/*" capture="user" ref={cameraInputRef} onChange={handleFileSelect} style={{display: 'none'}} />
+                            </div>
+
+                            <div style={inputGroupStyle}>
+                                <label htmlFor="profilePicUrl" style={labelStyle}>{t.profilePicUrlLabel}</label>
+                                <input
+                                    type="url"
+                                    id="profilePicUrl"
+                                    name="profilePicUrl"
+                                    style={inputStyle}
+                                    value={profileData.profilePicUrl || ''}
+                                    onChange={handleInputChange}
+                                    placeholder={t.profilePicUrlHelperText}
+                                />
                             </div>
 
                             <div style={inputGroupStyle}>
