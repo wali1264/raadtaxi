@@ -234,6 +234,7 @@ const faTranslations = {
   phoneRegisteredAsDriverError: "این شماره قبلاً به عنوان راننده ثبت شده است. لطفاً با نقش راننده وارد شوید یا با شماره دیگری به عنوان مسافر ثبت نام کنید.",
   phoneRegisteredAsPassengerError: "این شماره قبلاً به عنوان مسافر ثبت شده است. لطفاً با نقش مسافر وارد شوید یا با شماره دیگری به عنوان راننده ثبت نام کنید.",
   taxiNumberLabel: "شماره تاکسی",
+  fareToCollect: "لطفاً مبلغ {amount} را از {passengerName} دریافت کنید.",
 };
 
 export type TranslationSet = typeof faTranslations;
@@ -472,6 +473,7 @@ const psTranslations: TranslationSet = {
   phoneRegisteredAsDriverError: "دا شمیره مخکې د چلوونکي په توګه ثبت شوې ده. مهرباني وکړئ د چلوونکي په توګه ننوځئ یا د مسافر په توګه د بلې شمیرې سره نوم لیکنه وکړئ.",
   phoneRegisteredAsPassengerError: "دا شمیره مخکې د مسافر په توګه ثبت شوې ده. مهرباني وکړئ د مسافر په توګه ننوځئ یا د چلوونکي په توګه د بلې شمیرې سره نوم لیکنه وکړئ.",
   taxiNumberLabel: "د ټکسي شمیره",
+  fareToCollect: "مهرباني وکړئ {amount} له {passengerName} څخه ترلاسه کړئ.",
 };
 
 const enTranslations: TranslationSet = {
@@ -681,33 +683,34 @@ const enTranslations: TranslationSet = {
   alertSoundUpdatedSuccessfully: "Alert sound updated successfully.",
   errorUpdatingAlertSound: "Error updating alert sound.",
   pendingApprovalTitle: "Account Pending Approval",
-  pendingApprovalMessage: "Your account has been created successfully and is awaiting approval from the admin. You will be notified once it's active. Thank you for your patience.",
-  accountNotVerifiedWarning: "Your account is not yet verified. Please wait for admin approval.",
+  pendingApprovalMessage: "Your account has been created successfully and is currently awaiting administrator approval. You will be notified once it is activated. Thank you for your patience.",
+  accountNotVerifiedWarning: "Your account has not been verified yet. Please wait for administrator approval.",
   cannotViewRequestsDuringTrip: "You cannot view new requests during an active trip.",
-  tripCancelledByDriver: "The trip was cancelled by the driver.",
-  tripCancelledByPassenger: "The trip was cancelled by the passenger.",
-  confirmCancellationTitle: "Confirm Cancellation",
+  tripCancelledByDriver: "Trip was cancelled by the driver.",
+  tripCancelledByPassenger: "Trip was cancelled by the passenger.",
+  confirmCancellationTitle: "Confirm Trip Cancellation",
   confirmCancellationMessage: "Are you sure you want to cancel this trip?",
   errorCancellingTrip: "Error cancelling trip.",
   okButton: "OK",
   cancellationReasonTitle: "Please specify the reason for cancellation",
   cancellationReasonPassenger1: "Driver took too long",
   cancellationReasonPassenger2: "Driver is not moving",
-  cancellationReasonPassenger3: "Wrong vehicle/driver details",
+  cancellationReasonPassenger3: "Driver/vehicle details are incorrect",
   cancellationReasonPassenger4: "My plans changed",
   cancellationReasonDriver1: "Passenger did not show up",
-  cancellationReasonDriver2: "Passenger had too much luggage",
+  cancellationReasonDriver2: "Passenger had extra luggage",
   cancellationReasonDriver3: "Vehicle issue",
   cancellationReasonDriver4: "Passenger requested cancellation",
-  cancellationReasonOther: "Other (please specify)",
-  cancellationCommentPlaceholder: "Type your reason here...",
+  cancellationReasonOther: "Other reason (please explain)",
+  cancellationCommentPlaceholder: "Write your reason here...",
   submitCancellationButton: "Submit Cancellation Report",
   emergencyButton: "Emergency",
   cancellationSubmittedSuccessfully: "Cancellation report submitted successfully.",
   errorSubmittingCancellation: "Error submitting cancellation report.",
-  phoneRegisteredAsDriverError: "This number is already registered as a driver. Please log in as a driver or register as a passenger with a different number.",
-  phoneRegisteredAsPassengerError: "This number is already registered as a passenger. Please log in as a passenger or register as a driver with a different number.",
-  taxiNumberLabel: "Taxi No.",
+  phoneRegisteredAsDriverError: "This number is already registered as a driver. Please log in as a driver or register as a passenger with another number.",
+  phoneRegisteredAsPassengerError: "This number is already registered as a passenger. Please log in as a passenger or register as a driver with another number.",
+  taxiNumberLabel: "Taxi Number",
+  fareToCollect: "Please collect {amount} from {passengerName}.",
 };
 
 export const translations: Record<Language, TranslationSet> = {

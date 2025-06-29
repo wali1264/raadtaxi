@@ -684,8 +684,9 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
                     resetToInitialMapState();
                 } else if (updatedTrip.status === 'trip_started') {
                     setTripPhase('enRouteToDestination');
-                } else if (updatedTrip.status === 'completed') {
+                } else if (updatedTrip.status === 'trip_completed') {
                     setTripPhase('arrivedAtDestination');
+                    setCurrentTripFare(updatedTrip.actual_fare || updatedTrip.estimated_fare || null);
                 }
             })
             .subscribe((status, err) => {
@@ -721,7 +722,12 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
           setConfirmedOrigin({ lat: activeTrip.origin_lat, lng: activeTrip.origin_lng, address: activeTrip.origin_address });
           setConfirmedDestination({ lat: activeTrip.destination_lat, lng: activeTrip.destination_lng, address: activeTrip.destination_address });
           setCurrentRideRequestId(activeTrip.id);
-          setCurrentTripFare(activeTrip.estimated_fare || null);
+          
+          if (activeTrip.status === 'trip_completed' && activeTrip.actual_fare !== null) {
+              setCurrentTripFare(activeTrip.actual_fare);
+          } else {
+              setCurrentTripFare(activeTrip.estimated_fare || null);
+          }
 
           // 2. Fetch driver details and set UI state
           try {
@@ -774,7 +780,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
             case 'trip_started':
               recoveredTripPhase = 'enRouteToDestination'; break;
             case 'driver_at_destination':
-            case 'completed':
+            case 'trip_completed':
               recoveredTripPhase = 'arrivedAtDestination'; break;
           }
           setTripPhase(recoveredTripPhase);

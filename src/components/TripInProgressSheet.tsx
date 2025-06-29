@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback } from 'react';
 import { translations, Language } from '../translations';
 import { AppService, DriverDetails, TripPhase, TripSheetDisplayLevel } from '../types';
@@ -231,6 +230,14 @@ export const TripInProgressSheet: React.FC<TripInProgressSheetProps> = ({
             // --- Rating View ---
             <div style={ratingViewContainer}>
                 <h2 id="trip-sheet-title" style={ratingPromptStyle}>{t.tripEndedSuccessfullyTitle}</h2>
+                
+                {tripFare !== null && (
+                  <div style={{ ...fareContainerStyle, width: '100%', maxWidth: '300px', marginBottom: '1rem', paddingBottom: '1rem' }}>
+                      <span style={fareLabelStyle}>{t.fareLabel}</span>
+                      <span style={fareAmountStyle}>{`${Math.round(tripFare).toLocaleString(isRTL ? 'fa-IR' : 'en-US')} ${t.priceUnit}`}</span>
+                  </div>
+                )}
+
                 <StarRating currentLang={currentLang} count={5} rating={currentRating} onRatingChange={setCurrentRating} hoverRating={hoverRating} onHoverRatingChange={setHoverRating} size="2.5rem" />
                 <div style={ratingButtonContainerStyle}>
                     <button style={ratingSkipButtonStyle} onClick={onClose}>{t.skipRatingButton}</button>

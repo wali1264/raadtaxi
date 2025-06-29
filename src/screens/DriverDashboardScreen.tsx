@@ -76,6 +76,8 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const tripOriginMarkerRef = useRef<L.Marker | null>(null);
   const tripDestinationMarkerRef = useRef<L.Marker | null>(null);
   const [isNavigating, setIsNavigating] = useState(false); // For OSRM loading
+  const [fareSummary, setFareSummary] = useState<{ amount: number; passengerName: string } | null>(null);
+
 
   const [isLoadingAllPending, setIsLoadingAllPending] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -552,20 +554,22 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
     const actualDistance = await calculateActualDistanceKm({lat: startCoords.lat, lng: startCoords.lng}, {lat: endCoords.lat, lng: endCoords.lng});
     
-    let finalFare = currentTrip.estimated_fare;
+    let finalFare: number | null = currentTrip.estimated_fare;
     const service = allAppServices.find(s => s.id === currentTrip.service_id);
 
-    if (actualDistance && service?.pricePerKm) {
+    if (actualDistance !== null && service?.pricePerKm) {
         finalFare = actualDistance * service.pricePerKm;
     }
 
     await userService.updateRide(currentTrip.id, { 
-        status: 'completed', 
-        completed_at: new Date().toISOString(),
+        status: 'trip_completed',
         actual_fare: finalFare 
     });
     
-    resetTripState();
+    setFareSummary({ 
+        amount: Math.round(finalFare ?? 0), 
+        passengerName: currentPassengerDetails?.fullName || t.defaultPassengerName 
+    });
   };
 
   const handleDriverCancellationSubmit = async (reasonKey: string, customReason: string) => {
@@ -793,6 +797,27 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const gpsFabStyle: CSSProperties = { position: 'absolute', bottom: '1.5rem', [isRTL ? 'left' : 'right']: '1.5rem', backgroundColor: 'white', borderRadius: '50%', width: '3.25rem', height: '3.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', cursor: 'pointer', zIndex: 1050, border: 'none', transition: 'background-color 0.2s, transform 0.1s', pointerEvents: 'auto', };
   const navigationLoadingStyle: CSSProperties = {...loadingTextStyle, color: '#007bff'};
 
+  const fareSummaryModalOverlayStyle: CSSProperties = {
+      position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
+      backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', 
+      alignItems: 'center', justifyContent: 'center', zIndex: 3000, 
+      direction: isRTL ? 'rtl' : 'ltr'
+  };
+  const fareSummaryModalContentStyle: CSSProperties = {
+      backgroundColor: 'white', padding: '2rem', borderRadius: '0.75rem',
+      boxShadow: '0 5px 15px rgba(0,0,0,0.3)', width: '90%', maxWidth: '400px',
+      textAlign: 'center'
+  };
+  const fareSummaryTitleStyle: CSSProperties = {
+      fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '1.5rem', lineHeight: 1.6
+  };
+  const fareSummaryOkButtonStyle: CSSProperties = {
+      width: '100%', padding: '0.875rem 1rem', fontSize: '1rem',
+      fontWeight: 600, color: 'white', backgroundColor: '#28a745',
+      border: 'none', borderRadius: '0.5rem', cursor: 'pointer',
+      transition: 'background-color 0.2s',
+  };
+
 
   return (
     <div style={driverDashboardPageStyle}>
@@ -929,6 +954,27 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
               currentLang={currentLang}
               isSubmitting={isSubmittingCancellation}
           />
+      )}
+      {fareSummary && (
+          <div style={fareSummaryModalOverlayStyle}>
+              <div style={fareSummaryModalContentStyle}>
+                  <p style={fareSummaryTitleStyle}>
+                      {t.fareToCollect
+                          .replace('{amount}', fareSummary.amount.toLocaleString(isRTL ? 'fa-IR' : 'en-US') + ` ${t.priceUnit}`)
+                          .replace('{passengerName}', fareSummary.passengerName)
+                      }
+                  </p>
+                  <button 
+                      style={fareSummaryOkButtonStyle} 
+                      onClick={() => {
+                          setFareSummary(null);
+                          resetTripState();
+                      }}
+                  >
+                      {t.okButton}
+                  </button>
+              </div>
+          </div>
       )}
     </div>
   );

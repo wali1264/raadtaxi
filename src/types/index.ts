@@ -53,12 +53,11 @@ export interface RideRequest {
   destination_lng: number;
   service_id: string;
   estimated_fare?: number | null;
-  status: string; // e.g., 'pending', 'accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination', 'completed', 'cancelled', 'cancelled_by_driver', 'cancelled_by_passenger', 'timed_out_passenger'
+  status: string; // e.g., 'pending', 'accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination', 'trip_completed', 'cancelled', 'cancelled_by_driver', 'cancelled_by_passenger', 'timed_out_passenger'
   accepted_at?: string | null;
   driver_arrived_at_origin_at?: string | null;
   trip_started_at?: string | null;
   driver_arrived_at_destination_at?: string | null;
-  completed_at?: string | null;
   route_to_origin_polyline?: string | null;
   route_to_destination_polyline?: string | null;
   actual_fare?: number | null;
