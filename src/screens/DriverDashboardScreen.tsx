@@ -22,7 +22,7 @@ interface DriverDashboardScreenProps {
 
 const PROXIMITY_THRESHOLD_KM = 0.1; // 100 meters
 const POPUP_TIMEOUT_SECONDS = 30; 
-const LOCATION_POLLING_INTERVAL_MS = 20000; // 20 seconds
+
 
 // --- Local Icon Components for New Header ---
 const PowerIcon = ({ style }: { style?: CSSProperties }) => (
@@ -73,7 +73,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const [currentTripPhase, setCurrentTripPhase] = useState<DriverTripPhase>(DriverTripPhase.NONE);
   const [actualTripStartCoords, setActualTripStartCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [tripPathCoordinates, setTripPathCoordinates] = useState<{lat: number, lng: number}[]>([]);
-  const locationPollingIntervalRef = useRef<number | null>(null);
   
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const tripOriginMarkerRef = useRef<L.Marker | null>(null);
@@ -141,10 +140,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   }, []);
 
   const resetTripState = useCallback(() => {
-    if (locationPollingIntervalRef.current) {
-        clearInterval(locationPollingIntervalRef.current);
-        locationPollingIntervalRef.current = null;
-    }
     setCurrentTrip(null);
     setCurrentPassengerDetails(null);
     setCurrentTripPhase(DriverTripPhase.NONE);
@@ -271,6 +266,19 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             if (actualDriverGpsMarker.current) {
                 actualDriverGpsMarker.current.setLatLng([latitude, longitude]);
             }
+            if (currentTrip && currentTripPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION) {
+                setTripPathCoordinates(prev => [...prev, { lat: latitude, lng: longitude }]);
+                try {
+                    await supabase.from('trip_coordinates').insert({
+                        ride_request_id: currentTrip.id,
+                        latitude: latitude,
+                        longitude: longitude,
+                        timestamp: new Date().toISOString()
+                    });
+                } catch (e) {
+                    console.error('[DriverDashboard] Failed to persist trip coordinate:', getDebugMessage(e));
+                }
+            }
           } catch (e) { console.error('[DriverDashboard] Exception during driver location processing:', getDebugMessage(e), e); }
         },
         (error) => {
@@ -284,7 +292,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       if (locationWatchIdRef.current !== null) { navigator.geolocation.clearWatch(locationWatchIdRef.current); locationWatchIdRef.current = null; }
     }
     return () => { if (locationWatchIdRef.current !== null) navigator.geolocation.clearWatch(locationWatchIdRef.current); };
-  }, [isOnline, loggedInUserId, t.geolocationPermissionDenied, supabase]);
+  }, [isOnline, loggedInUserId, t.geolocationPermissionDenied, supabase, currentTrip, currentTripPhase]);
 
 
   const fetchAllPendingRequests = useCallback(async () => {
@@ -538,16 +546,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     setActualTripStartCoords(startCoords);
     setTripPathCoordinates([startCoords]);
 
-    if (locationPollingIntervalRef.current) clearInterval(locationPollingIntervalRef.current);
-    locationPollingIntervalRef.current = window.setInterval(() => {
-        setDriverLocation(currentLocation => {
-            if (currentLocation) {
-                setTripPathCoordinates(prevPath => [...prevPath, currentLocation]);
-            }
-            return currentLocation;
-        });
-    }, LOCATION_POLLING_INTERVAL_MS);
-    
     try {
         await userService.updateRide(currentTrip.id, { status: 'trip_started', trip_started_at: new Date().toISOString() });
         const startPos: L.LatLngTuple = [driverLocation.lat, driverLocation.lng];
@@ -567,16 +565,10 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         setCurrentTripPhase(DriverTripPhase.AT_PICKUP); 
         setActualTripStartCoords(null);
         setTripPathCoordinates([]);
-        if(locationPollingIntervalRef.current) clearInterval(locationPollingIntervalRef.current);
     }
   };
 
   const handleEndTrip = async () => {
-    if (locationPollingIntervalRef.current) {
-        clearInterval(locationPollingIntervalRef.current);
-        locationPollingIntervalRef.current = null;
-    }
-
     if (!currentTrip || !actualTripStartCoords || !driverLocation) {
         alert(isRTL ? "نمی توان سفر را به پایان رساند: اطلاعات سفر یا موقعیت GPS در دسترس نیست." : "Cannot end trip: missing trip info or GPS location.");
         return;
@@ -711,28 +703,22 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
                 recoveredPhase = DriverTripPhase.AT_DESTINATION; break;
           }
           
-          if(activeTrip.actual_trip_polyline){
-            try {
-              const parsedPath = JSON.parse(activeTrip.actual_trip_polyline);
-              if(Array.isArray(parsedPath) && parsedPath.length > 0) {
-                setTripPathCoordinates(parsedPath);
-                setActualTripStartCoords(parsedPath[0]);
+          if (recoveredPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION) {
+              const { data: pathData, error: pathError } = await supabase
+                  .from('trip_coordinates')
+                  .select('latitude, longitude')
+                  .eq('ride_request_id', activeTrip.id)
+                  .order('timestamp', { ascending: true });
+              
+              if (pathError) {
+                  console.error("Error fetching recovered trip path:", getDebugMessage(pathError));
+              } else if (pathData && pathData.length > 0) {
+                  const recoveredPath = pathData.map(p => ({ lat: p.latitude, lng: p.longitude }));
+                  setTripPathCoordinates(recoveredPath);
+                  setActualTripStartCoords(recoveredPath[0]);
               }
-            } catch(e){ console.error("Failed to parse recovered polyline on trip recovery.");}
           }
 
-          if (recoveredPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION) {
-             if (locationPollingIntervalRef.current) clearInterval(locationPollingIntervalRef.current);
-             locationPollingIntervalRef.current = window.setInterval(() => {
-                setDriverLocation(currentLocation => {
-                    if (currentLocation) {
-                        setTripPathCoordinates(prevPath => [...prevPath, currentLocation]);
-                    }
-                    return currentLocation;
-                });
-             }, LOCATION_POLLING_INTERVAL_MS);
-          }
-          
           setCurrentTripPhase(recoveredPhase);
           setShowCurrentTripDrawer(true);
           
@@ -771,7 +757,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       }
     };
     if (loggedInUserId) { recoverTrip(); }
-  }, [loggedInUserId, currentTrip, t, resetTripState, fetchOsrmRoute, drawRouteOnMap, drawTripMarkers, clearMapTripElements]);
+  }, [loggedInUserId, currentTrip, t, resetTripState, fetchOsrmRoute, drawRouteOnMap, drawTripMarkers, clearMapTripElements, supabase]);
 
 
   // --- STYLES ---
