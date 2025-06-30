@@ -9,7 +9,7 @@ import { DrawerPanel } from '../components/DrawerPanel';
 import { DriverProfileModal } from '../components/DriverProfileModal';
 import { CurrentTripDetailsPanel } from '../components/CurrentTripDetailsPanel'; 
 import { CancellationModal } from '../components/CancellationModal';
-import { ListIcon, CarIcon, GpsIcon, LocationMarkerIcon, DestinationMarkerIcon, ProfileIcon, DriverCarIcon } from '../components/icons';
+import { ListIcon, CarIcon, GpsIcon, LocationMarkerIcon, DestinationMarkerIcon, ProfileIcon, DriverCarIcon, HourglassIcon } from '../components/icons';
 import { AppContext, useAppContext } from '../contexts/AppContext';
 import { userService } from '../services/userService';
 import { getDebugMessage, getDistanceFromLatLonInKm, getCurrentLocation } from '../utils/helpers';
@@ -22,6 +22,7 @@ interface DriverDashboardScreenProps {
 
 const PROXIMITY_THRESHOLD_KM = 0.1; // 100 meters
 const POPUP_TIMEOUT_SECONDS = 30; 
+const LOCATION_POLLING_INTERVAL_MS = 20000; // 20 seconds
 
 // --- Local Icon Components for New Header ---
 const PowerIcon = ({ style }: { style?: CSSProperties }) => (
@@ -71,12 +72,15 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const [passengerDetailsError, setPassengerDetailsError] = useState<string | null>(null);
   const [currentTripPhase, setCurrentTripPhase] = useState<DriverTripPhase>(DriverTripPhase.NONE);
   const [actualTripStartCoords, setActualTripStartCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [tripPathCoordinates, setTripPathCoordinates] = useState<{lat: number, lng: number}[]>([]);
+  const locationPollingIntervalRef = useRef<number | null>(null);
   
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const tripOriginMarkerRef = useRef<L.Marker | null>(null);
   const tripDestinationMarkerRef = useRef<L.Marker | null>(null);
   const [isNavigating, setIsNavigating] = useState(false); // For OSRM loading
   const [fareSummary, setFareSummary] = useState<{ amount: number; passengerName: string } | null>(null);
+  const [isCalculatingFare, setIsCalculatingFare] = useState(false);
 
 
   const [isLoadingAllPending, setIsLoadingAllPending] = useState(false);
@@ -137,6 +141,10 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   }, []);
 
   const resetTripState = useCallback(() => {
+    if (locationPollingIntervalRef.current) {
+        clearInterval(locationPollingIntervalRef.current);
+        locationPollingIntervalRef.current = null;
+    }
     setCurrentTrip(null);
     setCurrentPassengerDetails(null);
     setCurrentTripPhase(DriverTripPhase.NONE);
@@ -146,6 +154,8 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     setShowCurrentTripDrawer(false); 
     setIsNavigating(false);
     setActualTripStartCoords(null);
+    setTripPathCoordinates([]);
+    setIsCalculatingFare(false);
   }, [clearMapTripElements]);
 
   const fetchOsrmRoute = async (startCoords: L.LatLngTuple, endCoords: L.LatLngTuple): Promise<L.LatLngExpression[] | null> => {
@@ -518,123 +528,103 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     setShowCurrentTripDrawer(false);
   };
 
-  const calculateActualDistanceKm = async (origin: {lat: number, lng: number}, destination: {lat: number, lng: number}): Promise<number | null> => {
-    try {
-        const fetchOptions: RequestInit = {
-            method: 'GET',
-            mode: 'cors',
-            referrerPolicy: 'strict-origin-when-cross-origin'
-        };
-        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false`, fetchOptions);
-        if (!response.ok) throw new Error(`OSRM API error: ${response.status} ${response.statusText}`);
-        const data = await response.json();
-        if (data.routes && data.routes.length > 0 && data.routes[0].distance) {
-            return data.routes[0].distance / 1000;
-        }
-        return null;
-    } catch (error) {
-        console.error("Error calculating actual route distance:", error);
-        return null;
-    }
-  };
-
   const handleStartTrip = async () => {
-    // 1. Check for required data. Use the location from the background watch.
     if (!currentTrip || !driverLocation) {
         alert(isRTL ? "موقعیت فعلی شما برای شروع سفر در دسترس نیست. لطفاً از فعال بودن GPS اطمینان حاصل کنید." : "Your current location is not available to start the trip. Please ensure GPS is active.");
         return;
     }
-    
-    // 2. Optimistic UI Update: Change the phase immediately for a responsive feel.
     setCurrentTripPhase(DriverTripPhase.EN_ROUTE_TO_DESTINATION);
-    
-    // 3. Set the actual start coordinates from the watched location.
-    setActualTripStartCoords({ lat: driverLocation.lat, lng: driverLocation.lng });
+    const startCoords = { lat: driverLocation.lat, lng: driverLocation.lng };
+    setActualTripStartCoords(startCoords);
+    setTripPathCoordinates([startCoords]);
 
-    // 4. Perform network operations in the background.
+    if (locationPollingIntervalRef.current) clearInterval(locationPollingIntervalRef.current);
+    locationPollingIntervalRef.current = window.setInterval(() => {
+        setDriverLocation(currentLocation => {
+            if (currentLocation) {
+                setTripPathCoordinates(prevPath => [...prevPath, currentLocation]);
+            }
+            return currentLocation;
+        });
+    }, LOCATION_POLLING_INTERVAL_MS);
+    
     try {
-        // Update ride status in the database.
         await userService.updateRide(currentTrip.id, { status: 'trip_started', trip_started_at: new Date().toISOString() });
-        
-        // Fetch and draw the route to the destination.
         const startPos: L.LatLngTuple = [driverLocation.lat, driverLocation.lng];
         const destPos: L.LatLngTuple = [currentTrip.destination_lat, currentTrip.destination_lng];
         const routeCoords = await fetchOsrmRoute(startPos, destPos);
-
         if (routeCoords) {
             drawRouteOnMap(routeCoords, '#28a745');
             drawTripMarkers([currentTrip.origin_lat, currentTrip.origin_lng], destPos);
         } else {
-            // Fallback to straight line if routing fails.
             drawRouteOnMap([startPos, destPos], '#28a745', false); 
             drawTripMarkers([currentTrip.origin_lat, currentTrip.origin_lng], destPos);
-            // This will only show after the UI has already updated.
             alert(isRTL ? "خطا در مسیریابی به مقصد. مسیر مستقیم نمایش داده شد." : "Routing error to destination. Straight line shown.");
         }
     } catch (error: any) {
-        // If something fails, revert the state and show an error.
         console.error("Error during trip start process:", getDebugMessage(error));
         alert(isRTL ? "خطا در شروع سفر. لطفاً دوباره تلاش کنید." : "Error starting the trip. Please try again.");
-        setCurrentTripPhase(DriverTripPhase.AT_PICKUP); // Revert phase
+        setCurrentTripPhase(DriverTripPhase.AT_PICKUP); 
         setActualTripStartCoords(null);
+        setTripPathCoordinates([]);
+        if(locationPollingIntervalRef.current) clearInterval(locationPollingIntervalRef.current);
     }
   };
 
   const handleEndTrip = async () => {
-    if (!currentTrip || !actualTripStartCoords) {
-        alert(isRTL ? "نمی توان سفر را به پایان رساند: اطلاعات سفر یا مختصات شروع موجود نیست." : "Cannot end trip: missing trip info or start coordinates.");
+    if (locationPollingIntervalRef.current) {
+        clearInterval(locationPollingIntervalRef.current);
+        locationPollingIntervalRef.current = null;
+    }
+
+    if (!currentTrip || !actualTripStartCoords || !driverLocation) {
+        alert(isRTL ? "نمی توان سفر را به پایان رساند: اطلاعات سفر یا موقعیت GPS در دسترس نیست." : "Cannot end trip: missing trip info or GPS location.");
         return;
     }
     
-    // Use the location from the background watch.
-    if (!driverLocation) {
-        alert(isRTL ? "موقعیت فعلی شما برای پایان سفر در دسترس نیست. لطفاً از فعال بودن GPS اطمینان حاصل کنید." : "Your current location is not available to end the trip. Please ensure GPS is active.");
-        return;
+    setIsCalculatingFare(true);
+    // Allow UI to update
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const finalTripPath = [...tripPathCoordinates, driverLocation];
+    let totalDistanceKm = 0;
+    for (let i = 0; i < finalTripPath.length - 1; i++) {
+        const point1 = finalTripPath[i];
+        const point2 = finalTripPath[i + 1];
+        if (point1 && point2) {
+            totalDistanceKm += getDistanceFromLatLonInKm(point1.lat, point1.lng, point2.lat, point2.lng);
+        }
     }
 
-    const endCoords = { lat: driverLocation.lat, lng: driverLocation.lng };
-
+    const service = allAppServices.find(s => s.id === currentTrip.service_id);
+    let finalFare: number | null = currentTrip.estimated_fare;
+    
+    if (service?.pricePerKm) {
+        const calculatedFare = totalDistanceKm * service.pricePerKm;
+        const minFare = service.minFare ?? 0;
+        finalFare = Math.max(calculatedFare, minFare);
+    } else {
+        console.warn("Could not calculate actual distance or service price/km missing, falling back to estimated fare.");
+    }
+    
     try {
-        const startCoords = actualTripStartCoords;
-        const actualDistance = await calculateActualDistanceKm(startCoords, endCoords);
-        const service = allAppServices.find(s => s.id === currentTrip.service_id);
-
-        let finalFare: number | null = currentTrip.estimated_fare;
-
-        if (actualDistance !== null && service?.pricePerKm) {
-            const calculatedFare = actualDistance * service.pricePerKm;
-            const minFare = service.minFare ?? 0;
-            finalFare = Math.max(calculatedFare, minFare);
-        } else if (actualDistance === null) {
-             console.warn("Could not calculate actual distance, falling back to estimated fare.");
-        }
-
         await userService.updateRide(currentTrip.id, { 
             status: 'trip_completed',
-            actual_fare: finalFare 
+            actual_fare: finalFare,
+            actual_trip_polyline: JSON.stringify(finalTripPath)
         });
         
+        setIsCalculatingFare(false);
         setFareSummary({ 
             amount: Math.round(finalFare ?? 0), 
             passengerName: currentPassengerDetails?.fullName || t.defaultPassengerName 
         });
 
     } catch (error) {
-        console.error("Error during dynamic fare calculation, falling back to estimated fare.", getDebugMessage(error));
-        try {
-            await userService.updateRide(currentTrip.id, {
-                status: 'trip_completed',
-                actual_fare: currentTrip.estimated_fare,
-            });
-            setFareSummary({
-                amount: Math.round(currentTrip.estimated_fare ?? 0),
-                passengerName: currentPassengerDetails?.fullName || t.defaultPassengerName,
-            });
-        } catch (fallbackError) {
-            console.error("Critical Error: Failed to even update with fallback fare.", getDebugMessage(fallbackError));
-            alert(isRTL ? "خطای حیاتی در پایان سفر رخ داد." : "A critical error occurred while ending the trip.");
-            resetTripState(); // Reset as a last resort
-        }
+        setIsCalculatingFare(false);
+        console.error("Critical Error: Failed to update trip status to completed.", getDebugMessage(error));
+        alert(isRTL ? "خطای حیاتی در پایان سفر رخ داد." : "A critical error occurred while ending the trip.");
+        resetTripState(); // Reset as a last resort
     }
   };
 
@@ -702,9 +692,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   // Trip recovery effect
   useEffect(() => {
     const recoverTrip = async () => {
-      if (!loggedInUserId || currentTrip) {
-        return;
-      }
+      if (!loggedInUserId || currentTrip) { return; }
       try {
         const activeTrip = await userService.fetchActiveDriverTrip(loggedInUserId);
         if (activeTrip) {
@@ -714,32 +702,47 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
           switch(activeTrip.status) {
               case 'accepted':
               case 'driver_en_route_to_origin':
-                if (activeTrip.driver_arrived_at_origin_at) {
-                    recoveredPhase = DriverTripPhase.AT_PICKUP;
-                } else {
-                    recoveredPhase = DriverTripPhase.EN_ROUTE_TO_PICKUP;
-                }
+                if (activeTrip.driver_arrived_at_origin_at) { recoveredPhase = DriverTripPhase.AT_PICKUP; } 
+                else { recoveredPhase = DriverTripPhase.EN_ROUTE_TO_PICKUP; }
                 break;
               case 'trip_started':
                 recoveredPhase = DriverTripPhase.EN_ROUTE_TO_DESTINATION; break;
               case 'driver_at_destination':
                 recoveredPhase = DriverTripPhase.AT_DESTINATION; break;
           }
+          
+          if(activeTrip.actual_trip_polyline){
+            try {
+              const parsedPath = JSON.parse(activeTrip.actual_trip_polyline);
+              if(Array.isArray(parsedPath) && parsedPath.length > 0) {
+                setTripPathCoordinates(parsedPath);
+                setActualTripStartCoords(parsedPath[0]);
+              }
+            } catch(e){ console.error("Failed to parse recovered polyline on trip recovery.");}
+          }
+
+          if (recoveredPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION) {
+             if (locationPollingIntervalRef.current) clearInterval(locationPollingIntervalRef.current);
+             locationPollingIntervalRef.current = window.setInterval(() => {
+                setDriverLocation(currentLocation => {
+                    if (currentLocation) {
+                        setTripPathCoordinates(prevPath => [...prevPath, currentLocation]);
+                    }
+                    return currentLocation;
+                });
+             }, LOCATION_POLLING_INTERVAL_MS);
+          }
+          
           setCurrentTripPhase(recoveredPhase);
           setShowCurrentTripDrawer(true);
           
           if (activeTrip.is_third_party) {
-            setCurrentPassengerDetails({
-                id: activeTrip.passenger_id, fullName: activeTrip.passenger_name, phoneNumber: activeTrip.passenger_phone, profilePicUrl: null
-            });
+            setCurrentPassengerDetails({ id: activeTrip.passenger_id, fullName: activeTrip.passenger_name, phoneNumber: activeTrip.passenger_phone, profilePicUrl: null });
           } else {
             setIsLoadingPassengerDetails(true);
             userService.fetchUserDetailsById(activeTrip.passenger_id)
                 .then(setCurrentPassengerDetails)
-                .catch(e => {
-                    console.error("[Trip Recovery] Error fetching passenger details:", getDebugMessage(e));
-                    setPassengerDetailsError(t.errorFetchingPassengerDetails);
-                })
+                .catch(e => { setPassengerDetailsError(t.errorFetchingPassengerDetails); })
                 .finally(() => setIsLoadingPassengerDetails(false));
           }
 
@@ -767,9 +770,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         console.error("[Trip Recovery] Error recovering driver trip:", getDebugMessage(error));
       }
     };
-    if (loggedInUserId) {
-        recoverTrip();
-    }
+    if (loggedInUserId) { recoverTrip(); }
   }, [loggedInUserId, currentTrip, t, resetTripState, fetchOsrmRoute, drawRouteOnMap, drawTripMarkers, clearMapTripElements]);
 
 
@@ -861,26 +862,11 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const gpsFabStyle: CSSProperties = { position: 'absolute', bottom: '1.5rem', [isRTL ? 'left' : 'right']: '1.5rem', backgroundColor: 'white', borderRadius: '50%', width: '3.25rem', height: '3.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', cursor: 'pointer', zIndex: 1050, border: 'none', transition: 'background-color 0.2s, transform 0.1s', pointerEvents: 'auto', };
   const navigationLoadingStyle: CSSProperties = {...loadingTextStyle, color: '#007bff'};
 
-  const fareSummaryModalOverlayStyle: CSSProperties = {
-      position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
-      backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', 
-      alignItems: 'center', justifyContent: 'center', zIndex: 3000, 
-      direction: isRTL ? 'rtl' : 'ltr'
-  };
-  const fareSummaryModalContentStyle: CSSProperties = {
-      backgroundColor: 'white', padding: '2rem', borderRadius: '0.75rem',
-      boxShadow: '0 5px 15px rgba(0,0,0,0.3)', width: '90%', maxWidth: '400px',
-      textAlign: 'center'
-  };
-  const fareSummaryTitleStyle: CSSProperties = {
-      fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '1.5rem', lineHeight: 1.6
-  };
-  const fareSummaryOkButtonStyle: CSSProperties = {
-      width: '100%', padding: '0.875rem 1rem', fontSize: '1rem',
-      fontWeight: 600, color: 'white', backgroundColor: '#28a745',
-      border: 'none', borderRadius: '0.5rem', cursor: 'pointer',
-      transition: 'background-color 0.2s',
-  };
+  const fareModalOverlayStyle: CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, direction: isRTL ? 'rtl' : 'ltr' };
+  const fareModalContentStyle: CSSProperties = { backgroundColor: 'white', padding: '2rem', borderRadius: '0.75rem', boxShadow: '0 5px 15px rgba(0,0,0,0.3)', width: '90%', maxWidth: '400px', textAlign: 'center' };
+  const fareModalTitleStyle: CSSProperties = { fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '1.5rem', lineHeight: 1.6 };
+  const fareModalOkButtonStyle: CSSProperties = { width: '100%', padding: '0.875rem 1rem', fontSize: '1rem', fontWeight: 600, color: 'white', backgroundColor: '#28a745', border: 'none', borderRadius: '0.5rem', cursor: 'pointer', transition: 'background-color 0.2s', };
+  const fareCalculationModalStyle: CSSProperties = { ...fareModalContentStyle, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' };
 
 
   return (
@@ -1019,17 +1005,25 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
               isSubmitting={isSubmittingCancellation}
           />
       )}
+      {isCalculatingFare && (
+          <div style={fareModalOverlayStyle}>
+              <div style={fareCalculationModalStyle}>
+                  <HourglassIcon />
+                  <p style={{fontSize: '1.1rem', fontWeight: 500, color: '#2D3748'}}>{t.calculatingFare}</p>
+              </div>
+          </div>
+      )}
       {fareSummary && (
-          <div style={fareSummaryModalOverlayStyle}>
-              <div style={fareSummaryModalContentStyle}>
-                  <p style={fareSummaryTitleStyle}>
+          <div style={fareModalOverlayStyle}>
+              <div style={fareModalContentStyle}>
+                  <p style={fareModalTitleStyle}>
                       {t.fareToCollect
                           .replace('{amount}', fareSummary.amount.toLocaleString(isRTL ? 'fa-IR' : 'en-US') + ` ${t.priceUnit}`)
                           .replace('{passengerName}', fareSummary.passengerName)
                       }
                   </p>
                   <button 
-                      style={fareSummaryOkButtonStyle} 
+                      style={fareModalOkButtonStyle} 
                       onClick={() => {
                           setFareSummary(null);
                           resetTripState();

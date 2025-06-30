@@ -35,3 +35,4 @@ export * from './MotorcycleRickshawIcon';
 export * from './NavigationIcon';
 export * from './UserCircleIcon';
 export * from './EditIcon';
+export * from './HourglassIcon';

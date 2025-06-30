@@ -235,6 +235,7 @@ const faTranslations = {
   phoneRegisteredAsPassengerError: "این شماره قبلاً به عنوان مسافر ثبت شده است. لطفاً با نقش مسافر وارد شوید یا با شماره دیگری به عنوان راننده ثبت نام کنید.",
   taxiNumberLabel: "شماره تاکسی",
   fareToCollect: "لطفاً مبلغ {amount} را از {passengerName} دریافت کنید.",
+  calculatingFare: "در حال محاسبه کرایه...",
 };
 
 export type TranslationSet = typeof faTranslations;
@@ -474,6 +475,7 @@ const psTranslations: TranslationSet = {
   phoneRegisteredAsPassengerError: "دا شمیره مخکې د مسافر په توګه ثبت شوې ده. مهرباني وکړئ د مسافر په توګه ننوځئ یا د چلوونکي په توګه د بلې شمیرې سره نوم لیکنه وکړئ.",
   taxiNumberLabel: "د ټکسي شمیره",
   fareToCollect: "مهرباني وکړئ {amount} له {passengerName} څخه ترلاسه کړئ.",
+  calculatingFare: "کرایه محاسبه کیږي...",
 };
 
 const enTranslations: TranslationSet = {
@@ -711,6 +713,7 @@ const enTranslations: TranslationSet = {
   phoneRegisteredAsPassengerError: "This number is already registered as a passenger. Please log in as a passenger or register as a driver with another number.",
   taxiNumberLabel: "Taxi Number",
   fareToCollect: "Please collect {amount} from {passengerName}.",
+  calculatingFare: "Calculating Fare...",
 };
 
 export const translations: Record<Language, TranslationSet> = {
