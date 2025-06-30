@@ -598,17 +598,20 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     } else {
         console.warn("Could not calculate actual distance or service price/km missing, falling back to estimated fare.");
     }
+
+    // Ensure fare is a non-null integer to prevent DB errors.
+    const fareToUpdate = finalFare !== null ? Math.round(finalFare) : 0;
     
     try {
         await userService.updateRide(currentTrip.id, { 
             status: 'trip_completed',
-            actual_fare: finalFare,
+            actual_fare: fareToUpdate,
             actual_trip_polyline: JSON.stringify(finalTripPath)
         });
         
         setIsCalculatingFare(false);
         setFareSummary({ 
-            amount: Math.round(finalFare ?? 0), 
+            amount: fareToUpdate, 
             passengerName: currentPassengerDetails?.fullName || t.defaultPassengerName 
         });
 

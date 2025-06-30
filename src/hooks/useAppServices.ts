@@ -13,12 +13,6 @@ const serviceImageMap: Record<string, React.FC<{ style?: CSSProperties }>> = {
   // Add other mappings as needed
 };
 
-const hardcodedRatesPerKm: Record<string, number> = {
-    'rickshaw': 10,
-    'car': 15,
-    'cargoRickshaw': 15,
-};
-
 
 export const useAppServices = (currentLang: Language) => {
   const [appServiceCategories, setAppServiceCategories] = useState<AppServiceCategory[]>([]);
@@ -56,16 +50,18 @@ export const useAppServices = (currentLang: Language) => {
         const nameKey = dbService.name_key as keyof typeof t;
         const descKey = dbService.description_key as keyof typeof t;
         
-        const pricePerKm = hardcodedRatesPerKm[dbService.image_identifier];
+        // Use price_per_km from the database.
+        const pricePerKm = dbService.price_per_km;
 
-        // Only process services that have a hardcoded rate
-        if (pricePerKm !== undefined) {
+        // Only process services that have a valid price_per_km from the DB.
+        // A price of 0 is valid, but null is not for this model.
+        if (pricePerKm !== null && pricePerKm >= 0) {
             const appService: AppService = {
               id: dbService.id,
               nameKey: t[nameKey] ? nameKey : 'defaultServiceName' as keyof typeof t,
               descKey: t[descKey] ? descKey : 'defaultServiceDesc' as keyof typeof t,
-              price: undefined, // Per user request, no base fare
-              pricePerKm: pricePerKm, // Use hardcoded rate
+              price: dbService.base_fare ?? 0, // Use base_fare from DB, default to 0.
+              pricePerKm: pricePerKm, // Use price_per_km from DB
               minFare: dbService.min_fare,
               imageComponent: imageComponent,
               category: dbService.category,
