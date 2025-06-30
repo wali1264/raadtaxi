@@ -12,7 +12,7 @@ import { CancellationModal } from '../components/CancellationModal';
 import { ListIcon, CarIcon, GpsIcon, LocationMarkerIcon, DestinationMarkerIcon, ProfileIcon, DriverCarIcon } from '../components/icons';
 import { AppContext, useAppContext } from '../contexts/AppContext';
 import { userService } from '../services/userService';
-import { getDebugMessage, getDistanceFromLatLonInKm } from '../utils/helpers';
+import { getDebugMessage, getDistanceFromLatLonInKm, getCurrentLocation } from '../utils/helpers';
 import { APP_USER_AGENT } from '../config';
 
 
@@ -196,7 +196,10 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         const newMap = L.map(mapContainerRef.current, {
             center: initialView, zoom: 13, zoomControl: false, attributionControl: false,
         });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(newMap);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            maxZoom: 20,
+        }).addTo(newMap);
         mapInstanceRef.current = newMap;
     }
     if (loggedInUserId && !driverProfile.userId) {
@@ -236,7 +239,11 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             map.setView(driverLatLng, map.getZoom() < 15 ? 15: map.getZoom() );
         }
     };
-    navigator.geolocation.getCurrentPosition(initialLocationListener, (err) => console.warn("Error getting initial GPS for marker:", getDebugMessage(err), err), { enableHighAccuracy: true });
+    
+    getCurrentLocation()
+        .then(initialLocationListener)
+        .catch((err) => console.warn("Error getting initial GPS for marker:", getDebugMessage(err), err));
+        
   }, [isOnline, loggedInUserId, currentTripPhase]);
 
   useEffect(() => {
@@ -485,7 +492,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         alert(isRTL ? "موقعیت فعلی یا اطلاعات سفر در دسترس نیست." : "Current location or trip info unavailable.");
         return;
     }
-    setCurrentTripPhase(DriverTripPhase.EN_ROUTE_TO_PICKUP);
     const driverLatLng = actualDriverGpsMarker.current.getLatLng();
     const driverPos: L.LatLngTuple = [driverLatLng.lat, driverLatLng.lng];
     const pickupPos: L.LatLngTuple = [currentTrip.origin_lat, currentTrip.origin_lng];
@@ -494,33 +500,22 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         drawRouteOnMap(routeCoords, '#007bff');
         drawTripMarkers(pickupPos, null);
     } else {
-        drawRouteOnMap([driverPos, pickupPos], '#007bff', false); 
+        drawRouteOnMap([driverPos, pickupPos], '#007bff', false);
         drawTripMarkers(pickupPos, null);
         alert(isRTL ? "خطا در مسیریابی. مسیر مستقیم نمایش داده شد." : "Routing error. Straight line shown.");
     }
-    setShowCurrentTripDrawer(false); 
-  };
-
-  const handleStartTrip = async () => {
-    if (!currentTrip || !actualDriverGpsMarker.current) return;
     
-    const { lat, lng } = actualDriverGpsMarker.current.getLatLng();
-    setActualTripStartCoords({ lat, lng });
-
-    setCurrentTripPhase(DriverTripPhase.EN_ROUTE_TO_DESTINATION);
-    await userService.updateRide(currentTrip.id, { status: 'trip_started', trip_started_at: new Date().toISOString() });
-    
-    const startPos: L.LatLngTuple = [lat, lng];
-    const destPos: L.LatLngTuple = [currentTrip.destination_lat, currentTrip.destination_lng];
-    const routeCoords = await fetchOsrmRoute(startPos, destPos);
-    if (routeCoords) {
-        drawRouteOnMap(routeCoords, '#28a745');
-        drawTripMarkers([currentTrip.origin_lat, currentTrip.origin_lng], destPos);
-    } else {
-        drawRouteOnMap([startPos, destPos], '#28a745', false); 
-        drawTripMarkers([currentTrip.origin_lat, currentTrip.origin_lng], destPos);
-        alert(isRTL ? "خطا در مسیریابی به مقصد. مسیر مستقیم نمایش داده شد." : "Routing error to destination. Straight line shown.");
+    try {
+        await userService.updateRide(currentTrip.id, {
+            driver_arrived_at_origin_at: new Date().toISOString()
+        });
+        setCurrentTripPhase(DriverTripPhase.AT_PICKUP);
+    } catch (error) {
+        console.error("Error updating trip status on navigation:", getDebugMessage(error));
+        alert(isRTL ? "خطا در به‌روزرسانی وضعیت سفر." : "Error updating trip status.");
     }
+
+    setShowCurrentTripDrawer(false);
   };
 
   const calculateActualDistanceKm = async (origin: {lat: number, lng: number}, destination: {lat: number, lng: number}): Promise<number | null> => {
@@ -543,33 +538,104 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     }
   };
 
+  const handleStartTrip = async () => {
+    // 1. Check for required data. Use the location from the background watch.
+    if (!currentTrip || !driverLocation) {
+        alert(isRTL ? "موقعیت فعلی شما برای شروع سفر در دسترس نیست. لطفاً از فعال بودن GPS اطمینان حاصل کنید." : "Your current location is not available to start the trip. Please ensure GPS is active.");
+        return;
+    }
+    
+    // 2. Optimistic UI Update: Change the phase immediately for a responsive feel.
+    setCurrentTripPhase(DriverTripPhase.EN_ROUTE_TO_DESTINATION);
+    
+    // 3. Set the actual start coordinates from the watched location.
+    setActualTripStartCoords({ lat: driverLocation.lat, lng: driverLocation.lng });
+
+    // 4. Perform network operations in the background.
+    try {
+        // Update ride status in the database.
+        await userService.updateRide(currentTrip.id, { status: 'trip_started', trip_started_at: new Date().toISOString() });
+        
+        // Fetch and draw the route to the destination.
+        const startPos: L.LatLngTuple = [driverLocation.lat, driverLocation.lng];
+        const destPos: L.LatLngTuple = [currentTrip.destination_lat, currentTrip.destination_lng];
+        const routeCoords = await fetchOsrmRoute(startPos, destPos);
+
+        if (routeCoords) {
+            drawRouteOnMap(routeCoords, '#28a745');
+            drawTripMarkers([currentTrip.origin_lat, currentTrip.origin_lng], destPos);
+        } else {
+            // Fallback to straight line if routing fails.
+            drawRouteOnMap([startPos, destPos], '#28a745', false); 
+            drawTripMarkers([currentTrip.origin_lat, currentTrip.origin_lng], destPos);
+            // This will only show after the UI has already updated.
+            alert(isRTL ? "خطا در مسیریابی به مقصد. مسیر مستقیم نمایش داده شد." : "Routing error to destination. Straight line shown.");
+        }
+    } catch (error: any) {
+        // If something fails, revert the state and show an error.
+        console.error("Error during trip start process:", getDebugMessage(error));
+        alert(isRTL ? "خطا در شروع سفر. لطفاً دوباره تلاش کنید." : "Error starting the trip. Please try again.");
+        setCurrentTripPhase(DriverTripPhase.AT_PICKUP); // Revert phase
+        setActualTripStartCoords(null);
+    }
+  };
+
   const handleEndTrip = async () => {
-    if (!currentTrip || !actualDriverGpsMarker.current || !actualTripStartCoords) {
-        alert(isRTL ? "نمی توان سفر را به پایان رساند: اطلاعات سفر، مکان راننده، یا مختصات شروع موجود نیست." : "Cannot end trip: missing trip info, driver location, or start coordinates.");
+    if (!currentTrip || !actualTripStartCoords) {
+        alert(isRTL ? "نمی توان سفر را به پایان رساند: اطلاعات سفر یا مختصات شروع موجود نیست." : "Cannot end trip: missing trip info or start coordinates.");
+        return;
+    }
+    
+    // Use the location from the background watch.
+    if (!driverLocation) {
+        alert(isRTL ? "موقعیت فعلی شما برای پایان سفر در دسترس نیست. لطفاً از فعال بودن GPS اطمینان حاصل کنید." : "Your current location is not available to end the trip. Please ensure GPS is active.");
         return;
     }
 
-    const endCoords = actualDriverGpsMarker.current.getLatLng();
-    const startCoords = actualTripStartCoords;
+    const endCoords = { lat: driverLocation.lat, lng: driverLocation.lng };
 
-    const actualDistance = await calculateActualDistanceKm({lat: startCoords.lat, lng: startCoords.lng}, {lat: endCoords.lat, lng: endCoords.lng});
-    
-    let finalFare: number | null = currentTrip.estimated_fare;
-    const service = allAppServices.find(s => s.id === currentTrip.service_id);
+    try {
+        const startCoords = actualTripStartCoords;
+        const actualDistance = await calculateActualDistanceKm(startCoords, endCoords);
+        const service = allAppServices.find(s => s.id === currentTrip.service_id);
 
-    if (actualDistance !== null && service?.pricePerKm) {
-        finalFare = actualDistance * service.pricePerKm;
+        let finalFare: number | null = currentTrip.estimated_fare;
+
+        if (actualDistance !== null && service?.pricePerKm) {
+            const calculatedFare = actualDistance * service.pricePerKm;
+            const minFare = service.minFare ?? 0;
+            finalFare = Math.max(calculatedFare, minFare);
+        } else if (actualDistance === null) {
+             console.warn("Could not calculate actual distance, falling back to estimated fare.");
+        }
+
+        await userService.updateRide(currentTrip.id, { 
+            status: 'trip_completed',
+            actual_fare: finalFare 
+        });
+        
+        setFareSummary({ 
+            amount: Math.round(finalFare ?? 0), 
+            passengerName: currentPassengerDetails?.fullName || t.defaultPassengerName 
+        });
+
+    } catch (error) {
+        console.error("Error during dynamic fare calculation, falling back to estimated fare.", getDebugMessage(error));
+        try {
+            await userService.updateRide(currentTrip.id, {
+                status: 'trip_completed',
+                actual_fare: currentTrip.estimated_fare,
+            });
+            setFareSummary({
+                amount: Math.round(currentTrip.estimated_fare ?? 0),
+                passengerName: currentPassengerDetails?.fullName || t.defaultPassengerName,
+            });
+        } catch (fallbackError) {
+            console.error("Critical Error: Failed to even update with fallback fare.", getDebugMessage(fallbackError));
+            alert(isRTL ? "خطای حیاتی در پایان سفر رخ داد." : "A critical error occurred while ending the trip.");
+            resetTripState(); // Reset as a last resort
+        }
     }
-
-    await userService.updateRide(currentTrip.id, { 
-        status: 'trip_completed',
-        actual_fare: finalFare 
-    });
-    
-    setFareSummary({ 
-        amount: Math.round(finalFare ?? 0), 
-        passengerName: currentPassengerDetails?.fullName || t.defaultPassengerName 
-    });
   };
 
   const handleDriverCancellationSubmit = async (reasonKey: string, customReason: string) => {
@@ -603,35 +669,34 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     setIsCancellationModalOpen(true);
   };
 
-  const handleLocateDriver = () => {
-    if (!mapInstanceRef.current) { alert(t.mapNotLoaded); return; }
+  const handleLocateDriver = async () => {
     const map = mapInstanceRef.current;
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const userLatLng: L.LatLngExpression = [position.coords.latitude, position.coords.longitude];
-                if (actualDriverGpsMarker.current) { actualDriverGpsMarker.current.setLatLng(userLatLng); }
-                else {
-                    const gpsMarkerIconHTML = ReactDOMServer.renderToString(<DriverCarIcon />);
-                    const gpsLeafletIcon = L.divIcon({ html: gpsMarkerIconHTML, className: 'actual-driver-gps-marker', iconSize: [40,40], iconAnchor: [20,20] });
-                    actualDriverGpsMarker.current = L.marker(userLatLng, { icon: gpsLeafletIcon, zIndexOffset: 1000 }).addTo(map);
-                }
-                map.setView(userLatLng, 16);
-            },
-            (error: GeolocationPositionError) => {
-                console.error("Error getting GPS location:", getDebugMessage(error), error);
-                let message = "";
-                switch (error.code) {
-                    case error.PERMISSION_DENIED: message = t.geolocationPermissionDenied; break;
-                    case error.POSITION_UNAVAILABLE: message = t.geolocationUnavailableHintVpnOrSignal; break;
-                    case error.TIMEOUT: message = t.geolocationTimeout; break;
-                    default: message = t.geolocationUnavailable; break;
-                }
-                alert(message);
-            },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        );
-    } else { alert(t.geolocationNotSupported); }
+    if (!map) { 
+        alert(t.mapNotLoaded); 
+        return; 
+    }
+    try {
+        const position = await getCurrentLocation();
+        const userLatLng: L.LatLngExpression = [position.coords.latitude, position.coords.longitude];
+        if (actualDriverGpsMarker.current) { 
+            actualDriverGpsMarker.current.setLatLng(userLatLng); 
+        } else {
+            const gpsMarkerIconHTML = ReactDOMServer.renderToString(<DriverCarIcon />);
+            const gpsLeafletIcon = L.divIcon({ html: gpsMarkerIconHTML, className: 'actual-driver-gps-marker', iconSize: [40,40], iconAnchor: [20,20] });
+            actualDriverGpsMarker.current = L.marker(userLatLng, { icon: gpsLeafletIcon, zIndexOffset: 1000 }).addTo(map);
+        }
+        map.setView(userLatLng, 16);
+    } catch (error: any) {
+        console.error("Error getting GPS location:", getDebugMessage(error), error);
+        let message = "";
+        switch (error.code) {
+            case 1: message = t.geolocationPermissionDenied; break;
+            case 2: message = t.geolocationUnavailableHintVpnOrSignal; break;
+            case 3: message = t.geolocationTimeout; break;
+            default: message = t.geolocationNotSupported; break;
+        }
+        alert(message);
+    }
   };
   
   // Trip recovery effect
@@ -705,8 +770,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     if (loggedInUserId) {
         recoverTrip();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loggedInUserId]);
+  }, [loggedInUserId, currentTrip, t, resetTripState, fetchOsrmRoute, drawRouteOnMap, drawTripMarkers, clearMapTripElements]);
 
 
   // --- STYLES ---

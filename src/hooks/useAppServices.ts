@@ -66,6 +66,7 @@ export const useAppServices = (currentLang: Language) => {
               descKey: t[descKey] ? descKey : 'defaultServiceDesc' as keyof typeof t,
               price: undefined, // Per user request, no base fare
               pricePerKm: pricePerKm, // Use hardcoded rate
+              minFare: dbService.min_fare,
               imageComponent: imageComponent,
               category: dbService.category,
             };

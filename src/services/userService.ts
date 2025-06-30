@@ -342,7 +342,7 @@ export const userService = {
         .from('ride_requests')
         .select('*')
         .eq('passenger_id', passengerId)
-        .in('status', ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination', 'trip_completed'])
+        .in('status', ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination'])
         .order('created_at', { ascending: false })
         .limit(1)
         .single();

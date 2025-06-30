@@ -7,7 +7,7 @@ import { supabase } from '../services/supabase';
 import { APP_USER_AGENT } from '../config';
 // AppService, AppServiceCategory removed, will get from context
 import { RideRequest, DriverDetails, TripPhase, TripSheetDisplayLevel, DriverSearchState, AppService, UserRole } from '../types'; 
-import { debounce, getDistanceFromLatLonInKm, getDebugMessage } from '../utils/helpers';
+import { debounce, getDistanceFromLatLonInKm, getDebugMessage, getCurrentLocation } from '../utils/helpers';
 import { ServiceSelectionSheet } from '../components/ServiceSelectionSheet';
 import { DriverSearchSheet } from '../components/DriverSearchSheet';
 import { TripInProgressSheet } from '../components/TripInProgressSheet';
@@ -21,6 +21,38 @@ interface MapScreenProps {
 }
 
 const PASSENGER_REQUEST_TIMEOUT_MS = 90000; // 90 seconds
+
+// Helper function to create custom icons for POIs
+const getPoiIcon = (tags: { [key: string]: string }): L.DivIcon => {
+    let iconSvg = '';
+    let color = '#718096'; // Default gray
+
+    if (tags.amenity === 'restaurant' || tags.amenity === 'cafe' || tags.amenity === 'fast_food') {
+        color = '#F59E0B'; // Amber
+        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M5.5 2A2.5 2.5 0 003 4.5v1.783c.092.34.264.654.49.913l1.838 2.05a1.5 1.5 0 001.172.554H13a1.5 1.5 0 001.172-.554l1.838-2.05c.226-.259.398-.573.49-.913V4.5A2.5 2.5 0 0014.5 2h-9zM3 12.5A2.5 2.5 0 005.5 15h9a2.5 2.5 0 002.5-2.5V11H3v1.5z"/></svg>`;
+    } else if (tags.shop) {
+        color = '#3B82F6'; // Blue
+        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H4.72l-.38-1.522A1 1 0 003 1z"/><path d="M16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/></svg>`;
+    } else if (tags.amenity === 'pharmacy') {
+        color = '#EF4444'; // Red
+        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-11.25a.75.75 0 00-1.5 0v2.5h-2.5a.75.75 0 000 1.5h2.5v2.5a.75.75 0 001.5 0v-2.5h2.5a.75.75 0 000-1.5h-2.5v-2.5z" clip-rule="evenodd"/></svg>`;
+    } else if (tags.amenity === 'place_of_worship') {
+        color = '#10B981'; // Green
+        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 21V10.08l6-3.04 6 3.04V21H4zM2 21h1V10L12 4l9 6v11h1v-1l-1-1v-9l-9-6-9 6v10l-1 1v1zM12 14l-4 2v2h8v-2l-4-2z"/></svg>`; // Mosque icon
+    } else if (tags.tourism === 'hotel') {
+        color = '#8B5CF6'; // Violet
+        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v2.5a.5.5 0 001 0V4a1 1 0 112 0v2.5a.5.5 0 001 0V4a1 1 0 112 0v1.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 012 5.5V4a1 1 0 112 0v1.5a.5.5 0 001 0V4a1 1 0 011-1h5zM2 13.5A1.5 1.5 0 013.5 12h13a1.5 1.5 0 011.5 1.5V15a1 1 0 01-1 1H3a1 1 0 01-1-1v-1.5z" clip-rule="evenodd" /></svg>`;
+    }
+    
+    const style = `width:100%;height:100%;background:${color};color:white;padding:4px;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.4);`;
+    return L.divIcon({
+        html: `<div style="${style}">${iconSvg}</div>`,
+        className: 'poi-marker-icon', // this class is mainly for semantic purposes, styling is inline
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+    });
+};
+
 
 export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => {
   const { 
@@ -84,6 +116,11 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [estimatedTimeToDestination, setEstimatedTimeToDestination] = useState<number | null>(null);
   
   const debouncedUpdateAddressRef = useRef<((map: L.Map) => Promise<void>) | undefined>(undefined);
+  
+  // State for POI feature
+  const [isFetchingPois, setIsFetchingPois] = useState(false);
+  const poiLayerRef = useRef<L.LayerGroup | null>(null);
+
   const updateAddressFromMapCenter = useCallback(async (map: L.Map) => {
     if (showDriverSearchSheet || showTripInProgressSheet) return; setIsLoadingAddress(true); setSearchQuery(t.addressLoading); setSearchError(''); const center = map.getCenter();
     try { 
@@ -112,13 +149,100 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   useEffect(() => { 
     if (mapContainerRef.current && !mapInstanceRef.current) { 
         const initialView: L.LatLngExpression = [32.3745, 62.1164]; 
-        const newMap = L.map(mapContainerRef.current, { center: initialView, zoom: 13, zoomControl: false, attributionControl: false, }); 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {}).addTo(newMap); 
+        const newMap = L.map(mapContainerRef.current, { center: initialView, zoom: 13, zoomControl: false, attributionControl: true, }); 
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            maxZoom: 20,
+        }).addTo(newMap); 
         mapInstanceRef.current = newMap; 
         setSearchQuery(t.addressLoading); 
+
+        // Initialize the POI layer group and add it to the map
+        if (!poiLayerRef.current) {
+            poiLayerRef.current = L.layerGroup().addTo(newMap);
+        }
     } 
     return () => { mapInstanceRef.current?.remove(); mapInstanceRef.current = null; }; 
   }, [t.addressLoading]);
+
+  // POI Fetching and Displaying Effect
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const fetchAndDisplayPois = async () => {
+        const mapBounds = map.getBounds();
+        const zoom = map.getZoom();
+
+        // Only fetch POIs at a reasonable zoom level to avoid clutter and huge requests
+        if (zoom < 15) {
+            poiLayerRef.current?.clearLayers();
+            return;
+        }
+
+        setIsFetchingPois(true);
+
+        const boundsStr = `${mapBounds.getSouth()},${mapBounds.getWest()},${mapBounds.getNorth()},${mapBounds.getEast()}`;
+        const poiQuery = `
+            [out:json][timeout:25];
+            (
+              node["amenity"~"restaurant|cafe|pharmacy|place_of_worship|fast_food"](${boundsStr});
+              node["shop"~"supermarket|convenience"](${boundsStr});
+              node["tourism"="hotel"](${boundsStr});
+            );
+            out body;
+            >;
+            out skel qt;
+        `;
+        
+        try {
+            const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(poiQuery)}`);
+            if (!response.ok) throw new Error(`Overpass API query failed with status ${response.status}`);
+            const data = await response.json();
+            
+            poiLayerRef.current?.clearLayers();
+            
+            if (data.elements) {
+                data.elements.forEach((element: any) => {
+                    if (element.type === 'node' && element.tags && element.tags.name) {
+                        const marker = L.marker([element.lat, element.lon], { icon: getPoiIcon(element.tags) })
+                            .bindPopup(`<b>${element.tags.name}</b>`);
+                        poiLayerRef.current?.addLayer(marker);
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('Error fetching or displaying POIs:', err);
+        } finally {
+            setIsFetchingPois(false);
+        }
+    };
+    
+    const debouncedFetchPois = debounce(fetchAndDisplayPois, 1200);
+
+    // Attach listeners
+    map.on('moveend', debouncedFetchPois);
+    map.on('zoomend', debouncedFetchPois);
+
+    // Initial fetch for the current view
+    debouncedFetchPois();
+
+    // Cleanup listeners on unmount
+    return () => {
+        map.off('moveend', debouncedFetchPois);
+        map.off('zoomend', debouncedFetchPois);
+        poiLayerRef.current?.clearLayers();
+    };
+  }, [mapInstanceRef.current]); // This effect depends only on the map instance itself
+
+  useEffect(() => {
+    // Change cursor style based on POI fetching state
+    if (mapContainerRef.current) {
+        mapContainerRef.current.style.cursor = isFetchingPois ? 'wait' : 'default';
+    }
+  }, [isFetchingPois]);
+
+
   useEffect(() => { const currentDebouncedUpdate = debounce((map: L.Map) => { return updateAddressFromMapCenter(map); }, 750); debouncedUpdateAddressRef.current = currentDebouncedUpdate; const map = mapInstanceRef.current; if (!map) return; if (!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet) { currentDebouncedUpdate(map).catch(err => console.error("Initial debounced call failed:", err)); } const handleMoveEnd = () => { if (!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet) { currentDebouncedUpdate(map).catch(err => console.error("Debounced move_end call failed:", err)); } }; map.on('moveend', handleMoveEnd); return () => { map.off('moveend', handleMoveEnd); }; }, [updateAddressFromMapCenter, showServiceSheet, showDriverSearchSheet, showTripInProgressSheet]);
   useEffect(() => { const handleClickOutside = (event: MouseEvent) => { if (serviceDropdownRef.current && !serviceDropdownRef.current.contains(event.target as Node)) { setIsServiceDropdownOpen(false); } }; document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, []);
 
@@ -289,40 +413,38 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     supabase // supabase client directly, not from context
   ]);
   
-  const handleGpsClick = () => {
-    if (navigator.geolocation && mapInstanceRef.current && !showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet) {
-      const map = mapInstanceRef.current;
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const userLatLng: L.LatLngExpression = [position.coords.latitude, position.coords.longitude];
-          map.setView(userLatLng, 15);
-          if (debouncedUpdateAddressRef.current) {
+  const handleGpsClick = async () => {
+    const map = mapInstanceRef.current;
+    if (!map || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet) return;
+
+    try {
+        const position = await getCurrentLocation(); // Uses default timeout of 15s from helper
+        const userLatLng: L.LatLngExpression = [position.coords.latitude, position.coords.longitude];
+        map.setView(userLatLng, 15);
+        if (debouncedUpdateAddressRef.current) {
             debouncedUpdateAddressRef.current(map).catch(err => console.error("Debounced GPS click call failed:", getDebugMessage(err), err));
-          }
-        },
-        (error: GeolocationPositionError) => {
-          console.error("Error getting GPS location:", getDebugMessage(error), error);
-          let message = "";
-          switch (error.code) {
-            case error.PERMISSION_DENIED:
-              message = t.geolocationPermissionDenied;
-              break;
-            case error.POSITION_UNAVAILABLE:
-              message = t.geolocationUnavailableHintVpnOrSignal;
-              break;
-            case error.TIMEOUT:
-              message = t.geolocationTimeout;
-              break;
-            default:
-              message = t.geolocationUnavailable;
-              break;
-          }
-          alert(message);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
+        }
+    } catch (error: any) {
+        console.error("Error getting GPS location:", getDebugMessage(error), error);
+        let message = "";
+        switch (error.code) {
+            case 1: // PERMISSION_DENIED
+                message = t.geolocationPermissionDenied;
+                break;
+            case 2: // POSITION_UNAVAILABLE
+                message = t.geolocationUnavailableHintVpnOrSignal;
+                break;
+            case 3: // TIMEOUT
+                message = t.geolocationTimeout;
+                break;
+            default: // Covers not supported and other potential errors
+                message = t.geolocationNotSupported;
+                break;
+        }
+        alert(message);
     }
   };
+
   const calculateRouteDistance = async (origin: {lat: number, lng: number}, destination: {lat: number, lng: number}) => { setIsCalculatingDistance(true); setDistanceError(null); setRouteDistanceKm(null); try { 
     const fetchOptions: RequestInit = {
         method: 'GET',
@@ -451,7 +573,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         debouncedUpdateAddressRef.current(mapInstanceRef.current)
             .catch(err => console.error("Update address for new origin failed:", err));
     }
-  }, [supabase, clearPassengerRequestTimeout, currentRideRequestId]);
+  }, [supabase, clearPassengerRequestTimeout]);
 
   const handleDriverAssigned = useCallback(async (updatedRequest: RideRequest) => {
     clearPassengerRequestTimeout();
@@ -520,7 +642,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
     }
-  }, [selectedServiceForSearch, t, supabase, clearPassengerRequestTimeout, currentRideRequestId]);
+  }, [selectedServiceForSearch, t, supabase, clearPassengerRequestTimeout]);
 
 
   const pollRideRequestStatus = useCallback(async (rideRequestId: string) => {
@@ -793,8 +915,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     if (loggedInUserId && allAppServices.length > 0) {
         recoverTrip();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loggedInUserId, allAppServices]);
+  }, [loggedInUserId, allAppServices, showTripInProgressSheet, showDriverSearchSheet, currentRideRequestId, t, resetToInitialMapState, handleDriverAssigned]);
 
 
   const handleRequestRideFromSheet = (service: AppService, originAddressText: string, destinationAddressText: string, estimatedPrice: number | null) => {

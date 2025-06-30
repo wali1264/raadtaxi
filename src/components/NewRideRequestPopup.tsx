@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, CSSProperties } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -47,7 +46,9 @@ export const NewRideRequestPopup: React.FC<NewRideRequestPopupProps> = ({
                 doubleClickZoom: false,
             });
 
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(newMap);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 20
+            }).addTo(newMap);
             mapInstance.current = newMap;
         }
 

@@ -27,6 +27,7 @@ export interface AppService {
     descKey: keyof typeof translations.fa;
     price?: number;
     pricePerKm?: number;
+    minFare?: number | null;
     imageComponent: React.FC<{ style?: CSSProperties }>;
     category: string;
 }

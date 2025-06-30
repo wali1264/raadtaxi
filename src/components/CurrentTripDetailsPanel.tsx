@@ -216,7 +216,7 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
     };
 
     const canNavigateToPickup = currentPhase === DriverTripPhase.EN_ROUTE_TO_PICKUP;
-    const canStartTrip = currentPhase === DriverTripPhase.EN_ROUTE_TO_PICKUP || currentPhase === DriverTripPhase.AT_PICKUP;
+    const canStartTrip = currentPhase === DriverTripPhase.AT_PICKUP;
     const isRidePhase = currentPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION;
 
     return (

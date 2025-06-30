@@ -1,4 +1,3 @@
-
 export function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
   let timeoutId: number | undefined = undefined;
   return (...args: Parameters<F>): Promise<Awaited<ReturnType<F>>> => {
@@ -57,4 +56,53 @@ export const getDebugMessage = (err: any): string => {
     }
   }
   return 'The error object did not have a standard message, details, or code. See the full object logged next.';
+};
+
+/**
+ * A robust promisified function to get the user's current location.
+ * It checks for permissions using the Permissions API before making a request.
+ *
+ * @param {PositionOptions} [options] - Optional PositionOptions for the geolocation request.
+ * @returns {Promise<GeolocationPosition>} A promise that resolves with the position or rejects with a GeolocationPositionError.
+ */
+export const getCurrentLocation = (
+    options: PositionOptions = { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+): Promise<GeolocationPosition> => {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            // Create an error object that mimics GeolocationPositionError
+            return reject({
+                code: 2, // POSITION_UNAVAILABLE is the closest standard code
+                message: 'Geolocation is not supported by this browser.',
+                PERMISSION_DENIED: 1,
+                POSITION_UNAVAILABLE: 2,
+                TIMEOUT: 3,
+            } as GeolocationPositionError);
+        }
+
+        const getPosition = () => navigator.geolocation.getCurrentPosition(resolve, reject, options);
+
+        // Use Permissions API if available for a proactive check
+        if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+            navigator.permissions.query({ name: 'geolocation' }).then(permissionStatus => {
+                if (permissionStatus.state === 'granted' || permissionStatus.state === 'prompt') {
+                    getPosition();
+                } else { // 'denied'
+                    reject({
+                        code: 1, // PERMISSION_DENIED
+                        message: 'User denied the request for Geolocation.',
+                        PERMISSION_DENIED: 1,
+                        POSITION_UNAVAILABLE: 2,
+                        TIMEOUT: 3,
+                    } as GeolocationPositionError);
+                }
+            }).catch(err => {
+                console.warn("Permissions API query failed, proceeding with direct request.", err);
+                getPosition(); // Fallback if query itself fails
+            });
+        } else {
+            // Fallback for browsers that don't support the Permissions API
+            getPosition();
+        }
+    });
 };
