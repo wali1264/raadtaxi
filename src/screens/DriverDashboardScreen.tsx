@@ -71,8 +71,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const [isLoadingPassengerDetails, setIsLoadingPassengerDetails] = useState<boolean>(false);
   const [passengerDetailsError, setPassengerDetailsError] = useState<string | null>(null);
   const [currentTripPhase, setCurrentTripPhase] = useState<DriverTripPhase>(DriverTripPhase.NONE);
-  const [actualTripStartCoords, setActualTripStartCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [tripPathCoordinates, setTripPathCoordinates] = useState<{lat: number, lng: number}[]>([]);
   
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const tripOriginMarkerRef = useRef<L.Marker | null>(null);
@@ -148,8 +146,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     clearMapTripElements();
     setShowCurrentTripDrawer(false); 
     setIsNavigating(false);
-    setActualTripStartCoords(null);
-    setTripPathCoordinates([]);
     setIsCalculatingFare(false);
   }, [clearMapTripElements]);
 
@@ -265,19 +261,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
             if (actualDriverGpsMarker.current) {
                 actualDriverGpsMarker.current.setLatLng([latitude, longitude]);
-            }
-            if (currentTrip && currentTripPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION) {
-                setTripPathCoordinates(prev => [...prev, { lat: latitude, lng: longitude }]);
-                try {
-                    await supabase.from('trip_coordinates').insert({
-                        ride_request_id: currentTrip.id,
-                        latitude: latitude,
-                        longitude: longitude,
-                        timestamp: new Date().toISOString()
-                    });
-                } catch (e) {
-                    console.error('[DriverDashboard] Failed to persist trip coordinate:', getDebugMessage(e));
-                }
             }
           } catch (e) { console.error('[DriverDashboard] Exception during driver location processing:', getDebugMessage(e), e); }
         },
@@ -542,9 +525,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         return;
     }
     setCurrentTripPhase(DriverTripPhase.EN_ROUTE_TO_DESTINATION);
-    const startCoords = { lat: driverLocation.lat, lng: driverLocation.lng };
-    setActualTripStartCoords(startCoords);
-    setTripPathCoordinates([startCoords]);
 
     try {
         await userService.updateRide(currentTrip.id, { status: 'trip_started', trip_started_at: new Date().toISOString() });
@@ -562,48 +542,27 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     } catch (error: any) {
         console.error("Error during trip start process:", getDebugMessage(error));
         alert(isRTL ? "خطا در شروع سفر. لطفاً دوباره تلاش کنید." : "Error starting the trip. Please try again.");
-        setCurrentTripPhase(DriverTripPhase.AT_PICKUP); 
-        setActualTripStartCoords(null);
-        setTripPathCoordinates([]);
+        setCurrentTripPhase(DriverTripPhase.AT_PICKUP);
     }
   };
 
   const handleEndTrip = async () => {
-    if (!currentTrip || !actualTripStartCoords || !driverLocation) {
-        alert(isRTL ? "نمی توان سفر را به پایان رساند: اطلاعات سفر یا موقعیت GPS در دسترس نیست." : "Cannot end trip: missing trip info or GPS location.");
+    if (!currentTrip) {
+        alert(isRTL ? "نمی توان سفر را به پایان رساند: اطلاعات سفر در دسترس نیست." : "Cannot end trip: missing trip info.");
         return;
     }
     
     setIsCalculatingFare(true);
-    // Allow UI to update
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Artificial delay for better UX, showing the calculation modal briefly
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-    const finalTripPath = [...tripPathCoordinates, driverLocation];
-    let totalDistanceKm = 0;
-    for (let i = 0; i < finalTripPath.length - 1; i++) {
-        const point1 = finalTripPath[i];
-        const point2 = finalTripPath[i + 1];
-        if (point1 && point2) {
-            totalDistanceKm += getDistanceFromLatLonInKm(point1.lat, point1.lng, point2.lat, point2.lng);
-        }
-    }
-
-    const service = allAppServices.find(s => s.id === currentTrip.service_id);
-    let finalFare: number | null = currentTrip.estimated_fare;
-    
-    if (service?.pricePerKm) {
-        const calculatedFare = totalDistanceKm * service.pricePerKm;
-        const minFare = service.minFare ?? 0;
-        finalFare = Math.max(calculatedFare, minFare);
-    } else {
-        console.warn("Could not calculate actual distance or service price/km missing, falling back to estimated fare.");
-    }
+    const finalFare = currentTrip.estimated_fare;
     
     try {
         await userService.updateRide(currentTrip.id, { 
             status: 'trip_completed',
             actual_fare: finalFare,
-            actual_trip_polyline: JSON.stringify(finalTripPath)
+            // actual_trip_polyline is no longer needed or updated
         });
         
         setIsCalculatingFare(false);
@@ -703,22 +662,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
                 recoveredPhase = DriverTripPhase.AT_DESTINATION; break;
           }
           
-          if (recoveredPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION) {
-              const { data: pathData, error: pathError } = await supabase
-                  .from('trip_coordinates')
-                  .select('latitude, longitude')
-                  .eq('ride_request_id', activeTrip.id)
-                  .order('timestamp', { ascending: true });
-              
-              if (pathError) {
-                  console.error("Error fetching recovered trip path:", getDebugMessage(pathError));
-              } else if (pathData && pathData.length > 0) {
-                  const recoveredPath = pathData.map(p => ({ lat: p.latitude, lng: p.longitude }));
-                  setTripPathCoordinates(recoveredPath);
-                  setActualTripStartCoords(recoveredPath[0]);
-              }
-          }
-
           setCurrentTripPhase(recoveredPhase);
           setShowCurrentTripDrawer(true);
           
