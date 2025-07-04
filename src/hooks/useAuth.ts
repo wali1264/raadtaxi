@@ -1,5 +1,6 @@
 
 import { useState, useCallback, useEffect } from 'react';
+import { supabase } from '../services/supabase';
 import { translations, Language } from '../translations';
 import { Screen, UserRole } from '../types';
 import { getDebugMessage } from '../utils/helpers';
@@ -10,7 +11,7 @@ type ShowToastFunction = (message: string, type: 'error' | 'success' | 'info') =
 export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen) => void, showToast: ShowToastFunction) => {
   const [userPhoneNumber, setUserPhoneNumber] = useState<string>('');
   const [userRole, setUserRole] = useState<UserRole>('passenger');
-  const [pinMode, setPinMode] = useState<'create' | 'enter'>('create');
+  const [passwordMode, setPasswordMode] = useState<'create' | 'enter'>('create');
   const [loggedInUserId, setLoggedInUserId] = useState<string | null>(null);
   const [loggedInUserFullName, setLoggedInUserFullName] = useState<string | null>(null);
   const [isUserVerified, setIsUserVerified] = useState<boolean>(false);
@@ -28,29 +29,28 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
 
   useEffect(() => {
     const checkUserSession = async () => {
-      const storedUserId = localStorage.getItem('loggedInUserId');
-      if (storedUserId) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
         try {
-          const sessionData = await userService.fetchUserSessionData(storedUserId);
+          const sessionData = await userService.fetchUserSessionData(session.user.id);
           if (sessionData) {
             setLoggedInUserId(sessionData.userId);
             setLoggedInUserFullName(sessionData.fullName);
             setUserRole(sessionData.role);
-            setUserPhoneNumber(sessionData.phoneNumber || ''); // Populate phone number
+            setUserPhoneNumber(sessionData.phoneNumber || '');
             setIsUserVerified(sessionData.isVerified);
 
+            // Per user request, even unverified users should be sent to pending screen
+            // and not blocked here, so this check is correct.
             if (!sessionData.isVerified) {
                 setCurrentScreen('pendingApproval');
             } else {
                 setCurrentScreen(sessionData.role === 'driver' ? 'driverDashboard' : 'map');
             }
-          } else {
-            // User ID was in storage, but user doesn't exist in DB. Clean up.
-            localStorage.removeItem('loggedInUserId');
           }
         } catch (error) {
           console.error("Failed to restore session:", getDebugMessage(error));
-          localStorage.removeItem('loggedInUserId'); // Clear invalid session
+          await supabase.auth.signOut(); // Clear invalid session
         }
       }
       setIsInitializing(false);
@@ -58,7 +58,6 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
 
     checkUserSession();
     // Intentionally run only once on mount. `setCurrentScreen` is stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
 
@@ -77,9 +76,9 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
             showToast(errorMessage, 'error');
             return; 
           }
-          setPinMode('enter');
+          setPasswordMode('enter');
         } else {
-          setPinMode('create');
+          setPasswordMode('create');
         }
         setCurrentScreen('pin');
     } catch (error) {
@@ -88,83 +87,99 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
     }
   }, [setCurrentScreen, t, showToast]);
 
-  const handlePinConfirmed = useCallback(async (pin: string) => {
-    try {
-      let userData;
+  const handlePasswordConfirmed = useCallback(async (password: string) => {
+    const fakeEmail = `${userPhoneNumber}@example.com`;
 
-      if (pinMode === 'create') {
+    try {
+      let authUserId: string;
+      let userPublicData;
+
+      if (passwordMode === 'create') {
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: fakeEmail,
+          password: password,
+        });
+
+        if (signUpError) {
+            // Re-check for existing user to handle race conditions or outdated checks
+            if (signUpError.message.includes("User already registered")) {
+                showToast(signUpError.message, 'error');
+                setPasswordMode('enter'); // Switch to enter mode
+                setCurrentScreen('pin'); // Re-render pin screen in enter mode
+                return;
+            }
+            throw signUpError;
+        }
+        if (!signUpData.user) throw new Error("Supabase signup did not return a user.");
+        authUserId = signUpData.user.id;
+
         const defaultFullName = userRole === 'passenger' ?
           t.defaultPassengerName :
           (currentLang === 'fa' ? 'راننده' : currentLang === 'ps' ? 'چلوونکی' : 'Driver');
-
-        // FIX: The `userService.createUser` function returns the user object directly, not an object with {data, error}.
-        // The previous destructuring `const { data, error } = ...` was incorrect and caused this bug.
-        const createdUserData = await userService.createUser({
+        
+        userPublicData = await userService.createUserInPublicTable({
+          userId: authUserId,
           phoneNumber: userPhoneNumber,
           role: userRole,
           fullName: defaultFullName,
           currentLang: currentLang,
-          pin: pin,
         });
 
-        if (createdUserData) {
-          userData = createdUserData;
-          if (userRole === 'driver') {
-            await userService.createDriverProfileEntry(createdUserData.id);
-          }
-        } else {
-          // This path indicates the service returned null, which could be an RLS issue.
-          // For now, we'll treat it as a failure to prevent inconsistent states.
-          throw new Error("New user creation did not return data.");
-        }
-      } else { // pinMode === 'enter'
-        const existingUser = await userService.fetchUserByPhoneNumber(userPhoneNumber);
-        
-        let pinFromDb = '';
-        if (existingUser && existingUser.profile_pic_url) {
-            try {
-                const parsed = JSON.parse(existingUser.profile_pic_url);
-                if (parsed && parsed.pin) {
-                    pinFromDb = parsed.pin;
-                }
-            } catch (e) {
-                console.warn("Could not parse profile_pic_url as JSON for PIN check", e);
-            }
+        if (userRole === 'driver') {
+            await userService.createDriverProfileEntry(authUserId);
         }
 
-        if (existingUser && pinFromDb === pin) {
-          userData = existingUser;
-        } else {
-          showToast(t.incorrectPinError, 'error');
-          return;
+      } else { // passwordMode === 'enter'
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email: fakeEmail,
+          password: password,
+        });
+        if (signInError) {
+             if (signInError.message.includes("Invalid login credentials")) {
+                showToast(t.incorrectPinError, 'error');
+             } else {
+                throw signInError;
+             }
+             return;
+        }
+        if (!signInData.user) throw new Error("Supabase signin did not return a user.");
+        authUserId = signInData.user.id;
+
+        // Fetch fresh user data now that we are authenticated
+        userPublicData = await userService.fetchUserSessionData(authUserId);
+         if (!userPublicData) {
+            throw new Error("Could not fetch user data after sign-in.");
         }
       }
       
-      setLoggedInUserId(userData.id);
-      setLoggedInUserFullName(userData.full_name);
-      setUserRole(userData.role as UserRole);
-      setIsUserVerified(userData.is_verified);
-      localStorage.setItem('loggedInUserId', userData.id);
+      if (!userPublicData) {
+          throw new Error("Failed to retrieve or create user profile in public table.");
+      }
 
-      if (!userData.is_verified) {
+      setLoggedInUserId(userPublicData.userId);
+      setLoggedInUserFullName(userPublicData.fullName);
+      setUserRole(userPublicData.role as UserRole);
+      setIsUserVerified(userPublicData.isVerified);
+      
+      if (!userPublicData.isVerified) {
           setCurrentScreen('pendingApproval');
-      } else if (userData.role === 'driver') {
+      } else if (userPublicData.role === 'driver') {
           setCurrentScreen('driverDashboard');
       } else {
           setCurrentScreen('map');
       }
 
-    } catch (error) {
-      console.error("useAuth: PIN confirmation / User handling error -", getDebugMessage(error), error);
+    } catch (error: any) {
+      console.error("useAuth: Password confirmation / User handling error -", getDebugMessage(error), error);
       showToast(t.userCreationError, 'error');
     }
-  }, [userPhoneNumber, userRole, pinMode, currentLang, setCurrentScreen, t, showToast]);
+  }, [userPhoneNumber, userRole, passwordMode, currentLang, setCurrentScreen, t, showToast]);
 
-  const handleLogoutFromDashboard = useCallback(() => {
-    localStorage.removeItem('loggedInUserId'); // Clear from local storage
+  const handleLogoutFromDashboard = useCallback(async () => {
+    await supabase.auth.signOut();
     setCurrentScreen('phoneInput');
     setUserPhoneNumber('');
-    setUserRole('passenger'); // Reset role to passenger on logout
+    setUserRole('passenger');
     setLoggedInUserId(null);
     setLoggedInUserFullName(null);
     setIsUserVerified(false);
@@ -177,9 +192,9 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
     loggedInUserId,
     loggedInUserFullName,
     isUserVerified,
-    pinMode, // Expose pinMode
+    pinMode: passwordMode, // Keep prop name as 'pinMode' for App.tsx compatibility
     handlePhoneSubmitted,
-    handlePinConfirmed, // Renamed function
+    handlePinConfirmed: handlePasswordConfirmed,
     handleBackToPhoneInput,
     handleLogoutFromDashboard,
   };

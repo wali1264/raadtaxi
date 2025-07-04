@@ -822,7 +822,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
           <div style={headerActionsStyle}>
             <button style={iconButtonStyle(!!currentTrip)} onMouseEnter={(e) => {if (!currentTrip) e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'}} onMouseLeave={(e) => {if (!currentTrip) e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'}} onClick={() => setShowIncomingDrawer(true)} aria-label={t.requestsButton} aria-haspopup="true" aria-expanded={showIncomingDrawer} disabled={!!currentTrip} > 
                 <ListIcon /> 
-                {(timedOutOrDeclinedRequests.length + allPendingRequests.length) > 0 && <span style={badgeStyle}>{(timedOutOrDeclinedRequests.length + allPendingRequests.length)}</span>} 
+                {allPendingRequests.length > 0 && <span style={badgeStyle}>{allPendingRequests.length}</span>} 
             </button>
             <button style={iconButtonStyle(!currentTrip)} onMouseEnter={(e) => {if (currentTrip) e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'}} onMouseLeave={(e) => {if (currentTrip) e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'}} onClick={() => setShowCurrentTripDrawer(true)} aria-label={t.activeTripButton} aria-haspopup="true" aria-expanded={showCurrentTripDrawer} disabled={!currentTrip} > 
                 <CarIcon /> 

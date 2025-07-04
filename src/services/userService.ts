@@ -1,3 +1,4 @@
+
 import { supabase } from './supabase';
 import { UserRole, Language, DriverProfileData, PassengerDetails, RideRequest, UserSessionData } from '../types';
 import { getDebugMessage } from '../utils/helpers'; 
@@ -6,43 +7,60 @@ const DEFAULT_SOUND_URL = 'https://actions.google.com/sounds/v1/notifications/ca
 const BUCKET_NAME = 'profile-pictures';
 
 export const userService = {
-  async fetchUserByPhoneNumber(phoneNumber: string) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, full_name, role, profile_pic_url, is_verified') 
-      .eq('phone_number', phoneNumber)
-      .single();
-    if (error && error.code !== 'PGRST116') { 
-      console.error("UserService: Error fetching user by phone -", getDebugMessage(error), error);
-      throw error;
+  async fetchUserByPhoneNumber(phoneNumber: string): Promise<{ role: UserRole } | null> {
+    const { data, error } = await supabase.rpc('get_user_role_by_phone', {
+        p_phone_number: phoneNumber
+    });
+
+    if (error) {
+        // RPC will return an error if the function doesn't exist.
+        // It's better to log it but not throw, allowing the app to proceed as if the user is new.
+        console.error("UserService: Error calling get_user_role_by_phone RPC -", getDebugMessage(error), error);
+        return null;
     }
-    return data;
+
+    // If the function returns a role (a string), the user exists.
+    if (data) {
+        return { role: data as UserRole };
+    }
+    
+    // If data is null, the user does not exist.
+    return null;
   },
 
-  async createUser(details: { phoneNumber: string, role: UserRole, fullName: string, currentLang: Language, pin: string }) {
+  async createUserInPublicTable(details: { userId: string, phoneNumber: string, role: UserRole, fullName: string, currentLang: Language }) {
     const { data, error } = await supabase
       .from('users')
       .insert({
+        id: details.userId,
         phone_number: details.phoneNumber,
         role: details.role,
         full_name: details.fullName,
         current_language: details.currentLang,
-        profile_pic_url: JSON.stringify({ pin: details.pin, url: '' }),
+        profile_pic_url: '', // Initialize with empty URL
+        is_verified: true, // Auto-verify all new users
       })
-      .select('id, full_name, role, profile_pic_url, is_verified') 
+      .select('id, full_name, role, profile_pic_url, is_verified, phone_number') 
       .single();
+
     if (error) {
-      console.error("UserService: Error creating user -", getDebugMessage(error), error);
+      console.error("UserService: Error creating user in public table -", getDebugMessage(error), error);
       throw error;
     }
-    return data;
+    
+    // Manually construct the session data to match the expected format
+    return {
+        userId: data.id,
+        fullName: data.full_name,
+        phoneNumber: data.phone_number,
+        role: data.role as UserRole,
+        isVerified: data.is_verified,
+    };
   },
 
   async updateUser(userId: string, updates: { role?: UserRole, full_name?: string, profile_pic_url?: string | null }) {
     const updatePayload: any = { ...updates, updated_at: new Date().toISOString() };
     
-    // No longer need to handle empty string specifically as profile_pic_url is a JSON string now
-
     const { data, error } = await supabase
       .from('users')
       .update(updatePayload)
@@ -115,17 +133,36 @@ export const userService = {
   },
 
   async fetchDriverProfile(userId: string): Promise<Partial<DriverProfileData>> {
-    const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('full_name, phone_number, profile_pic_url') // Fetch profile_pic_url from users table
-        .eq('id', userId)
-        .single();
+    let userDataResult: { data: any, error: any };
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+
+    // If fetching for the currently logged-in user, do a direct SELECT.
+    // The new simple RLS policy `auth.uid() = id` allows this.
+    if (authUser && authUser.id === userId) {
+        userDataResult = await supabase
+            .from('users')
+            .select('full_name, phone_number, profile_pic_url')
+            .eq('id', userId)
+            .single();
+    } else {
+        // If fetching for another user (a trip counterpart), use the secure RPC function.
+        // This avoids RLS recursion.
+        userDataResult = await supabase.rpc('get_trip_counterpart_details', {
+            user_id_to_fetch: userId
+        }).single();
+    }
+    
+    const { data: userData, error: userError } = userDataResult;
 
     if (userError) {
         console.error("UserService: Error fetching user data for driver profile -", getDebugMessage(userError), userError);
         throw userError;
     }
+    if (!userData) {
+        throw new Error("Access denied or user not found for driver profile.");
+    }
     
+    // This part is now safe because we added policies for `drivers_profile`
     const { data: driverProfileData, error: driverProfileError } = await supabase
         .from('drivers_profile')
         .select('vehicle_model, vehicle_color, plate_region, plate_numbers, plate_type_char, alert_sound_preference')
@@ -141,7 +178,7 @@ export const userService = {
         userId: userId,
         fullName: userData?.full_name || '',
         phoneNumber: userData?.phone_number || '',
-        profilePicUrl: userData?.profile_pic_url || '', // Pass the raw JSON string
+        profilePicUrl: userData?.profile_pic_url || '',
         vehicleModel: driverProfileData?.vehicle_model || '',
         vehicleColor: driverProfileData?.vehicle_color || '',
         plateRegion: driverProfileData?.plate_region || '',
@@ -161,7 +198,7 @@ export const userService = {
       }
       
       if (profileData.profilePicUrl !== undefined) {
-          userUpdates.profile_pic_url = profileData.profilePicUrl; // This will now be a JSON string
+          userUpdates.profile_pic_url = profileData.profilePicUrl;
           userNeedsUpdate = true;
       }
 
@@ -178,7 +215,6 @@ export const userService = {
       
       const driverProfileDbUpdates: { [key: string]: any } = { user_id: userId };
       
-      // Map all possible fields from profileData to their DB column names to ensure correctness
       if (profileData.vehicleModel !== undefined) driverProfileDbUpdates.vehicle_model = profileData.vehicleModel;
       if (profileData.vehicleColor !== undefined) driverProfileDbUpdates.vehicle_color = profileData.vehicleColor;
       if (profileData.plateRegion !== undefined) driverProfileDbUpdates.plate_region = profileData.plateRegion;
@@ -188,7 +224,6 @@ export const userService = {
 
       const driverProfileFieldsToUpdate = Object.keys(driverProfileDbUpdates);
       
-      // Only perform an update if there's more than just the user_id
       if (driverProfileFieldsToUpdate.length > 1) {
         driverProfileDbUpdates.updated_at = new Date().toISOString();
         const { error: driverProfileUpsertError } = await supabase
@@ -205,7 +240,6 @@ export const userService = {
 
   async updateDriverOnlineStatus(userId: string, isOnline: boolean) {
     const status = isOnline ? 'online' : 'offline';
-    // Use upsert to prevent "Driver profile not found" error for new drivers.
     const { error } = await supabase
       .from('drivers_profile')
       .upsert(
@@ -226,11 +260,24 @@ export const userService = {
   },
 
   async fetchUserDetailsById(userId: string): Promise<PassengerDetails | null> {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, full_name, phone_number, profile_pic_url')
-      .eq('id', userId)
-      .single();
+    let userDetailsResult: { data: any, error: any };
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+
+    // If fetching own details, use direct query.
+    if (authUser && authUser.id === userId) {
+        userDetailsResult = await supabase
+            .from('users')
+            .select('id, full_name, phone_number, profile_pic_url')
+            .eq('id', userId)
+            .single();
+    } else {
+        // If fetching someone else (counterpart), use the secure RPC.
+        userDetailsResult = await supabase.rpc('get_trip_counterpart_details', {
+            user_id_to_fetch: userId
+        }).single();
+    }
+    
+    const { data, error } = userDetailsResult;
 
     if (error) {
       if (error.code === 'PGRST116') { 
@@ -245,7 +292,7 @@ export const userService = {
         id: data.id,
         fullName: data.full_name,
         phoneNumber: data.phone_number,
-        profilePicUrl: data.profile_pic_url, // Pass raw JSON string
+        profilePicUrl: data.profile_pic_url,
     };
   },
 

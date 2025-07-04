@@ -20,6 +20,20 @@ try {
   fs.writeFileSync(path.join(distDir, 'index.html'), htmlContent);
   console.log('index.html prepared for distribution in dist/index.html.');
 
+  // List of files to copy from 'public' to 'dist'
+  const publicFilesToCopy = ['manifest.json', 'sw.js'];
+  
+  publicFilesToCopy.forEach(fileName => {
+      const srcPath = path.join(publicDir, fileName);
+      const destPath = path.join(distDir, fileName);
+      if (fs.existsSync(srcPath)) {
+        fs.copyFileSync(srcPath, destPath);
+        console.log(`Copied public/${fileName} to dist/${fileName}.`);
+      } else {
+        console.warn(`File not found, skipping: ${srcPath}`);
+      }
+  });
+
   // Copy assets folder from public to dist
   const assetsDirInPublic = path.join(publicDir, 'assets');
   const assetsDirInDist = path.join(distDir, 'assets');

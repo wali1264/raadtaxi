@@ -33,9 +33,9 @@ const App = () => {
     loggedInUserId,  // from useAuth
     loggedInUserFullName, // from useAuth
     isUserVerified, // from useAuth
-    pinMode, // from useAuth
+    pinMode: passwordMode, // from useAuth, renamed for clarity
     handlePhoneSubmitted, // from useAuth
-    handlePinConfirmed,   // from useAuth
+    handlePinConfirmed: handlePasswordConfirmed,   // from useAuth, renamed for clarity
     handleBackToPhoneInput, // from useAuth
     handleLogoutFromDashboard // from useAuth
   } = useAuth(currentLang, setCurrentScreen, showToast);
@@ -133,7 +133,7 @@ const App = () => {
       screenComponent = <PhoneInputScreen currentLang={currentLang} onLangChange={handleLangChange} onNext={handlePhoneSubmitted} />;
       break;
     case 'pin':
-      screenComponent = <PinScreen currentLang={currentLang} phoneNumber={userPhoneNumber} mode={pinMode} onConfirm={handlePinConfirmed} onBack={handleBackToPhoneInput} />;
+      screenComponent = <PinScreen currentLang={currentLang} phoneNumber={userPhoneNumber} mode={passwordMode} onConfirm={handlePasswordConfirmed} onBack={handleBackToPhoneInput} />;
       break;
     case 'map':
       screenComponent = <MapScreen onNavigateToProfile={navigateToPassengerProfile} />; 

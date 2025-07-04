@@ -21,9 +21,8 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
     profilePicUrl: '',
   });
   const [initialProfileData, setInitialProfileData] = useState<Partial<PassengerProfileData>>({});
-  const [pinFromDb, setPinFromDb] = useState<string>('');
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null); // For local preview
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,29 +46,16 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
         try {
           const fetchedData = await userService.fetchUserDetailsById(loggedInUserId);
           if (fetchedData) {
-            let url = '', pin = '';
-            if (fetchedData.profilePicUrl) {
-                try {
-                    const parsed = JSON.parse(fetchedData.profilePicUrl);
-                    url = parsed.url || '';
-                    pin = parsed.pin || '';
-                } catch (e) {
-                    // Legacy data might just be a URL string
-                    url = fetchedData.profilePicUrl;
-                }
-            }
-
             const data = {
                 userId: fetchedData.id,
                 fullName: fetchedData.fullName || '',
                 phoneNumber: fetchedData.phoneNumber || '',
-                profilePicUrl: url,
+                profilePicUrl: fetchedData.profilePicUrl || '',
             };
             setProfileData(data);
             setInitialProfileData(data);
-            setPinFromDb(pin);
-            if (url) {
-              setImagePreviewUrl(url);
+            if (data.profilePicUrl) {
+              setImagePreviewUrl(data.profilePicUrl);
             }
           } else {
             setError(t.errorLoadingProfileData);
@@ -143,54 +129,39 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
         const dataToUpdate: { full_name?: string; profile_pic_url?: string } = {};
         let newUrl: string | undefined = undefined;
 
-        // Step 1: Handle image upload/deletion
         if (selectedImageFile) {
-            // If there's an old picture, delete it first.
             if (initialProfileData.profilePicUrl) {
                 await userService.deleteProfilePicture(initialProfileData.profilePicUrl);
             }
             newUrl = await userService.uploadProfilePicture(loggedInUserId, selectedImageFile);
         } else if (initialProfileData.profilePicUrl && !profileData.profilePicUrl) {
-            // This means the user removed the photo
             await userService.deleteProfilePicture(initialProfileData.profilePicUrl);
-            newUrl = ''; // Set to empty string to clear it
+            newUrl = '';
         }
 
-        // Step 2: Prepare data for DB update
         if ((profileData.fullName || '') !== (initialProfileData.fullName || '')) {
             dataToUpdate.full_name = profileData.fullName?.trim();
         }
 
-        // If URL changed, add it to the update payload
         if (newUrl !== undefined) {
-            dataToUpdate.profile_pic_url = JSON.stringify({ pin: pinFromDb, url: newUrl });
+            dataToUpdate.profile_pic_url = newUrl;
         }
 
-        // Step 3: Update DB if there are any changes
         if (Object.keys(dataToUpdate).length > 0) {
             const updatedUser = await userService.updateUser(loggedInUserId, dataToUpdate);
-            
-            let newUrlFromDb = '';
-            if (updatedUser.profile_pic_url) {
-                try {
-                    const parsed = JSON.parse(updatedUser.profile_pic_url);
-                    newUrlFromDb = parsed.url || '';
-                } catch (e) { newUrlFromDb = updatedUser.profile_pic_url; }
-            }
             
             const newProfileState = {
                 userId: loggedInUserId,
                 fullName: updatedUser.full_name || '',
                 phoneNumber: profileData.phoneNumber,
-                profilePicUrl: newUrlFromDb,
+                profilePicUrl: updatedUser.profile_pic_url || '',
             };
 
             setInitialProfileData(newProfileState);
             setProfileData(newProfileState);
-            setImagePreviewUrl(newUrlFromDb || null);
+            setImagePreviewUrl(newProfileState.profilePicUrl || null);
         }
         
-        // Step 4: Finalize UI state
         setSuccessMessage(t.profileUpdatedSuccessfully);
         setSelectedImageFile(null);
         setHasChanges(false);
