@@ -36,3 +36,4 @@ export * from './NavigationIcon';
 export * from './UserCircleIcon';
 export * from './EditIcon';
 export * from './HourglassIcon';
+export * from './GeminiSuggestIcon';

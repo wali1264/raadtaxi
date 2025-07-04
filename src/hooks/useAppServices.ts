@@ -14,9 +14,9 @@ const serviceImageMap: Record<string, React.FC<{ style?: CSSProperties }>> = {
 };
 
 const hardcodedRatesPerKm: Record<string, number> = {
-    'rickshaw': 10,
-    'car': 15,
-    'cargoRickshaw': 15,
+    'rickshaw': 13,
+    'car': 13,
+    'cargoRickshaw': 18,
 };
 
 

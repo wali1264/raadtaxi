@@ -1,3 +1,4 @@
+
 export type Language = 'fa' | 'ps' | 'en';
 
 const faTranslations = {
@@ -236,6 +237,19 @@ const faTranslations = {
   taxiNumberLabel: "شماره تاکسی",
   fareToCollect: "لطفاً مبلغ {amount} را از {passengerName} دریافت کنید.",
   calculatingFare: "در حال محاسبه کرایه...",
+  geminiSuggestButtonLabel: "پیشنهاد مقصد",
+  geminiModalTitle: "پیشنهاد مقصد با هوش مصنوعی",
+  geminiPromptPlaceholder: "مثلاً: یک پارک آرام برای مطالعه، یا یک رستوران سنتی...",
+  geminiCategoryRestaurant: "رستوران",
+  geminiCategoryCafe: "کافه",
+  geminiCategoryPark: "پارک",
+  geminiCategoryShopping: "خرید",
+  geminiCategoryHistoric: "تاریخی",
+  geminiGetSuggestions: "دریافت پیشنهاد",
+  geminiFindingPlaces: "در حال یافتن بهترین مکان‌ها برای شما...",
+  geminiApiError: "دریافت پیشنهاد با خطا مواجه شد. لطفاً بعداً تلاش کنید.",
+  geminiSelectAsDestination: "انتخاب به عنوان مقصد",
+  geminiTellUsMore: "دنبال چه چیزی می‌گردید؟",
 };
 
 export type TranslationSet = typeof faTranslations;
@@ -476,6 +490,19 @@ const psTranslations: TranslationSet = {
   taxiNumberLabel: "د ټکسي شمیره",
   fareToCollect: "مهرباني وکړئ {amount} له {passengerName} څخه ترلاسه کړئ.",
   calculatingFare: "کرایه محاسبه کیږي...",
+  geminiSuggestButtonLabel: "د مقصد وړاندیز",
+  geminiModalTitle: "د AI مقصد وړاندیزونه",
+  geminiPromptPlaceholder: "د مثال په توګه: د لوستلو لپاره یو ارام پارک، یا یو دودیز رستورانت...",
+  geminiCategoryRestaurant: "رستورانت",
+  geminiCategoryCafe: "کافي",
+  geminiCategoryPark: "پارک",
+  geminiCategoryShopping: "پیرود",
+  geminiCategoryHistoric: "تاریخي",
+  geminiGetSuggestions: "وړاندیزونه ترلاسه کړئ",
+  geminiFindingPlaces: "ستاسو لپاره د غوره ځایونو موندلو په حال کې...",
+  geminiApiError: "د وړاندیزونو په ترلاسه کولو کې پاتې راغلل. مهرباني وکړئ وروسته بیا هڅه وکړئ.",
+  geminiSelectAsDestination: "د مقصد په توګه وټاکئ",
+  geminiTellUsMore: "تاسو د څه شي په لټه کې یاست؟",
 };
 
 const enTranslations: TranslationSet = {
@@ -714,6 +741,19 @@ const enTranslations: TranslationSet = {
   taxiNumberLabel: "Taxi Number",
   fareToCollect: "Please collect {amount} from {passengerName}.",
   calculatingFare: "Calculating Fare...",
+  geminiSuggestButtonLabel: "Suggest Destination",
+  geminiModalTitle: "AI Destination Suggestions",
+  geminiPromptPlaceholder: "e.g., a quiet park to read, or a traditional restaurant...",
+  geminiCategoryRestaurant: "Restaurant",
+  geminiCategoryCafe: "Cafe",
+  geminiCategoryPark: "Park",
+  geminiCategoryShopping: "Shopping",
+  geminiCategoryHistoric: "Historic",
+  geminiGetSuggestions: "Get Suggestions",
+  geminiFindingPlaces: "Finding the best spots for you...",
+  geminiApiError: "Could not get suggestions. Please try again later.",
+  geminiSelectAsDestination: "Set as Destination",
+  geminiTellUsMore: "What are you looking for?",
 };
 
 export const translations: Record<Language, TranslationSet> = {

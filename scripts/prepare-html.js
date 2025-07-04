@@ -11,6 +11,16 @@ try {
     fs.mkdirSync(distDir, { recursive: true });
   }
 
+  // Helper function to copy files
+  const copyFile = (src, dest) => {
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, dest);
+      console.log(`Copied ${src} to ${dest}.`);
+    } else {
+      console.warn(`${src} not found, skipping copy.`);
+    }
+  };
+
   // Copy index.html and update script path
   let htmlContent = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf-8');
   htmlContent = htmlContent.replace(
@@ -20,19 +30,9 @@ try {
   fs.writeFileSync(path.join(distDir, 'index.html'), htmlContent);
   console.log('index.html prepared for distribution in dist/index.html.');
 
-  // List of files to copy from 'public' to 'dist'
-  const publicFilesToCopy = ['manifest.json', 'sw.js'];
-  
-  publicFilesToCopy.forEach(fileName => {
-      const srcPath = path.join(publicDir, fileName);
-      const destPath = path.join(distDir, fileName);
-      if (fs.existsSync(srcPath)) {
-        fs.copyFileSync(srcPath, destPath);
-        console.log(`Copied public/${fileName} to dist/${fileName}.`);
-      } else {
-        console.warn(`File not found, skipping: ${srcPath}`);
-      }
-  });
+  // Copy PWA files
+  copyFile(path.join(publicDir, 'manifest.json'), path.join(distDir, 'manifest.json'));
+  copyFile(path.join(publicDir, 'sw.js'), path.join(distDir, 'sw.js'));
 
   // Copy assets folder from public to dist
   const assetsDirInPublic = path.join(publicDir, 'assets');

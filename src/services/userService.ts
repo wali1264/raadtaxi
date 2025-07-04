@@ -13,18 +13,14 @@ export const userService = {
     });
 
     if (error) {
-        // RPC will return an error if the function doesn't exist.
-        // It's better to log it but not throw, allowing the app to proceed as if the user is new.
         console.error("UserService: Error calling get_user_role_by_phone RPC -", getDebugMessage(error), error);
         return null;
     }
 
-    // If the function returns a role (a string), the user exists.
     if (data) {
         return { role: data as UserRole };
     }
     
-    // If data is null, the user does not exist.
     return null;
   },
 
@@ -37,8 +33,8 @@ export const userService = {
         role: details.role,
         full_name: details.fullName,
         current_language: details.currentLang,
-        profile_pic_url: '', // Initialize with empty URL
-        is_verified: true, // Auto-verify all new users
+        profile_pic_url: '', 
+        is_verified: true, 
       })
       .select('id, full_name, role, profile_pic_url, is_verified, phone_number') 
       .single();
@@ -48,7 +44,6 @@ export const userService = {
       throw error;
     }
     
-    // Manually construct the session data to match the expected format
     return {
         userId: data.id,
         fullName: data.full_name,
@@ -101,7 +96,7 @@ export const userService = {
 
   async deleteProfilePicture(oldPicUrl: string): Promise<void> {
     if (!oldPicUrl || !oldPicUrl.includes(BUCKET_NAME)) {
-      return; // Not a valid storage URL, nothing to delete
+      return; 
     }
     try {
       const url = new URL(oldPicUrl);
@@ -124,7 +119,7 @@ export const userService = {
   async createDriverProfileEntry(userId: string) {
     const { error } = await supabase
       .from('drivers_profile')
-      .insert({ user_id: userId, current_status: 'offline', alert_sound_preference: DEFAULT_SOUND_URL }); // Set default sound
+      .insert({ user_id: userId, current_status: 'offline', alert_sound_preference: DEFAULT_SOUND_URL }); 
     if (error) {
       console.error("UserService: Error creating driver profile entry -", getDebugMessage(error), error);
       throw error;
@@ -136,8 +131,6 @@ export const userService = {
     let userDataResult: { data: any, error: any };
     const { data: { user: authUser } } = await supabase.auth.getUser();
 
-    // If fetching for the currently logged-in user, do a direct SELECT.
-    // The new simple RLS policy `auth.uid() = id` allows this.
     if (authUser && authUser.id === userId) {
         userDataResult = await supabase
             .from('users')
@@ -145,8 +138,6 @@ export const userService = {
             .eq('id', userId)
             .single();
     } else {
-        // If fetching for another user (a trip counterpart), use the secure RPC function.
-        // This avoids RLS recursion.
         userDataResult = await supabase.rpc('get_trip_counterpart_details', {
             user_id_to_fetch: userId
         }).single();
@@ -162,7 +153,6 @@ export const userService = {
         throw new Error("Access denied or user not found for driver profile.");
     }
     
-    // This part is now safe because we added policies for `drivers_profile`
     const { data: driverProfileData, error: driverProfileError } = await supabase
         .from('drivers_profile')
         .select('vehicle_model, vehicle_color, plate_region, plate_numbers, plate_type_char, alert_sound_preference')
@@ -263,7 +253,6 @@ export const userService = {
     let userDetailsResult: { data: any, error: any };
     const { data: { user: authUser } } = await supabase.auth.getUser();
 
-    // If fetching own details, use direct query.
     if (authUser && authUser.id === userId) {
         userDetailsResult = await supabase
             .from('users')
@@ -271,7 +260,6 @@ export const userService = {
             .eq('id', userId)
             .single();
     } else {
-        // If fetching someone else (counterpart), use the secure RPC.
         userDetailsResult = await supabase.rpc('get_trip_counterpart_details', {
             user_id_to_fetch: userId
         }).single();
@@ -304,7 +292,7 @@ export const userService = {
       .single();
 
     if (error) {
-        if (error.code === 'PGRST116') { // Not found
+        if (error.code === 'PGRST116') { 
             return null;
         }
         console.error("UserService: Error fetching user session data -", getDebugMessage(error), error);
@@ -341,7 +329,7 @@ export const userService = {
         .eq('id', rideId)
         .single();
     if (error) {
-        if (error.code === 'PGRST116') { // Not found
+        if (error.code === 'PGRST116') { 
             return null;
         }
         console.error("UserService: Error fetching ride request by ID -", getDebugMessage(error), error);
@@ -379,7 +367,6 @@ export const userService = {
 
     if (error) {
       console.error("UserService: Error submitting cancellation report -", getDebugMessage(error), error);
-      // We don't throw here to not block the UI flow, as cancelling the ride is more critical.
     }
     return !error;
   },
@@ -394,7 +381,7 @@ export const userService = {
         .limit(1)
         .single();
     
-    if (error && error.code !== 'PGRST116') { // PGRST116 is "No rows found"
+    if (error && error.code !== 'PGRST116') { 
         console.error("UserService: Error fetching active passenger trip -", getDebugMessage(error), error);
         throw error;
     }
@@ -407,7 +394,7 @@ export const userService = {
       .select('*')
       .eq('driver_id', driverId)
       .in('status', ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination'])
-      .order('accepted_at', { ascending: false }) // Order by when it was accepted
+      .order('accepted_at', { ascending: false }) 
       .limit(1)
       .single();
 

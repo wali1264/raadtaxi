@@ -1,3 +1,4 @@
+
 import React, { CSSProperties } from 'react';
 import { translations } from '../translations';
 
@@ -137,4 +138,12 @@ export interface UserSessionData {
     phoneNumber: string | null;
     role: UserRole;
     isVerified: boolean;
+}
+
+export interface DestinationSuggestion {
+  name: string;
+  category: string;
+  description: string;
+  latitude: number;
+  longitude: number;
 }
