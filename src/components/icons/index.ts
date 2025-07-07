@@ -37,3 +37,5 @@ export * from './UserCircleIcon';
 export * from './EditIcon';
 export * from './HourglassIcon';
 export * from './GeminiSuggestIcon';
+export * from './AddLocationIcon';
+export * from './UserPlaceMarkerIcon';

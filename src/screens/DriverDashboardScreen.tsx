@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -9,11 +10,12 @@ import { DrawerPanel } from '../components/DrawerPanel';
 import { DriverProfileModal } from '../components/DriverProfileModal';
 import { CurrentTripDetailsPanel } from '../components/CurrentTripDetailsPanel'; 
 import { CancellationModal } from '../components/CancellationModal';
-import { ListIcon, CarIcon, GpsIcon, LocationMarkerIcon, DestinationMarkerIcon, ProfileIcon, DriverCarIcon, HourglassIcon } from '../components/icons';
+import { AddPlaceModal } from '../components/AddPlaceModal';
+import { ListIcon, CarIcon, GpsIcon, LocationMarkerIcon, DestinationMarkerIcon, ProfileIcon, DriverCarIcon, HourglassIcon, AddLocationIcon, UserPlaceMarkerIcon } from '../components/icons';
 import { AppContext, useAppContext } from '../contexts/AppContext';
-import { userService } from '../services/userService';
+import { profileService, tripService } from '../services';
 import { getDebugMessage, getDistanceFromLatLonInKm, getCurrentLocation } from '../utils/helpers';
-import { APP_USER_AGENT } from '../config';
+import { useUserDefinedPlaces } from '../hooks/useUserDefinedPlaces';
 
 
 interface DriverDashboardScreenProps {
@@ -91,12 +93,17 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const [showIncomingDrawer, setShowIncomingDrawer] = useState(false);
   const [showCurrentTripDrawer, setShowCurrentTripDrawer] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false); 
+  const [isAddPlaceModalOpen, setIsAddPlaceModalOpen] = useState(false);
+  const [isAddingPlace, setIsAddingPlace] = useState(false);
 
   const actualDriverGpsMarker = useRef<L.Marker | null>(null); 
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const locationWatchIdRef = useRef<number | null>(null);
+  const userPlacesLayerRef = useRef<L.LayerGroup | null>(null);
+
+  const { userDefinedPlaces, refetch: refetchUserPlaces } = useUserDefinedPlaces();
 
   const playNotificationSound = useCallback(() => {
     if (audioPlayerRef.current) {
@@ -202,9 +209,12 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             maxZoom: 20,
         }).addTo(newMap);
         mapInstanceRef.current = newMap;
+        if (!userPlacesLayerRef.current) {
+            userPlacesLayerRef.current = L.layerGroup().addTo(newMap);
+        }
     }
     if (loggedInUserId && !driverProfile.userId) {
-        userService.fetchDriverProfile(loggedInUserId)
+        profileService.fetchDriverProfile(loggedInUserId)
             .then(data => setDriverProfile(data))
             .catch(err => console.error("Error fetching driver profile on mount:", err));
     }
@@ -216,6 +226,29 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         resetTripState(); 
     };
   }, [loggedInUserId, resetTripState]); 
+
+    useEffect(() => {
+        const map = mapInstanceRef.current;
+        const layer = userPlacesLayerRef.current;
+        if (!map || !layer) return;
+
+        layer.clearLayers();
+        const zoom = map.getZoom();
+        if (zoom >= 14) { // Only show at closer zoom levels
+            userDefinedPlaces.forEach(place => {
+                const iconHTML = ReactDOMServer.renderToString(<UserPlaceMarkerIcon />);
+                const userPlaceIcon = L.divIcon({
+                    html: iconHTML,
+                    className: 'user-defined-place-icon',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 24],
+                });
+                L.marker([place.location.lat, place.location.lng], { icon: userPlaceIcon })
+                    .addTo(layer)
+                    .bindPopup(`<b>${place.name}</b>`);
+            });
+        }
+    }, [userDefinedPlaces, mapInstanceRef.current]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -254,10 +287,13 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
           const { latitude, longitude, heading } = position.coords;
           setDriverLocation({ lat: latitude, lng: longitude });
           try {
-            await supabase.from('driver_locations').upsert({
-                driver_id: loggedInUserId, latitude: latitude, longitude: longitude,
-                heading: heading, timestamp: new Date().toISOString(),
-            }, { onConflict: 'driver_id' });
+            await supabase.from('driver_locations').upsert([{
+                driver_id: loggedInUserId,
+                latitude: latitude,
+                longitude: longitude,
+                heading: heading,
+                timestamp: new Date().toISOString(),
+            }], { onConflict: 'driver_id' });
 
             if (actualDriverGpsMarker.current) {
                 actualDriverGpsMarker.current.setLatLng([latitude, longitude]);
@@ -375,9 +411,9 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     }
     const newStatus = !isOnline; setIsOnline(newStatus); 
     try { 
-        await userService.updateDriverOnlineStatus(loggedInUserId, newStatus); 
+        await profileService.updateDriverOnlineStatus(loggedInUserId, newStatus); 
         if (newStatus && (!driverProfile.userId || driverProfile.userId !== loggedInUserId)) { 
-             userService.fetchDriverProfile(loggedInUserId)
+             profileService.fetchDriverProfile(loggedInUserId)
                 .then(data => setDriverProfile(data))
                 .catch(err => console.error("Error fetching driver profile on going online:", err));
         }
@@ -416,7 +452,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     setAcceptingRequestId(requestToAccept.id); 
     
     try {
-        const acceptedRide = await userService.updateRide(requestToAccept.id, {
+        const acceptedRide = await tripService.updateRide(requestToAccept.id, {
             status: 'accepted',
             driver_id: loggedInUserId,
             accepted_at: new Date().toISOString()
@@ -443,7 +479,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             // For self-booked rides, fetch the passenger's full profile.
             setIsLoadingPassengerDetails(true);
             setPassengerDetailsError(null);
-            userService.fetchUserDetailsById(acceptedRide.passenger_id)
+            profileService.fetchUserDetailsById(acceptedRide.passenger_id)
                 .then(setCurrentPassengerDetails)
                 .catch(e => {
                     console.error("Error fetching passenger details:", getDebugMessage(e));
@@ -507,7 +543,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     }
     
     try {
-        await userService.updateRide(currentTrip.id, {
+        await tripService.updateRide(currentTrip.id, {
             driver_arrived_at_origin_at: new Date().toISOString()
         });
         setCurrentTripPhase(DriverTripPhase.AT_PICKUP);
@@ -527,7 +563,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     setCurrentTripPhase(DriverTripPhase.EN_ROUTE_TO_DESTINATION);
 
     try {
-        await userService.updateRide(currentTrip.id, { status: 'trip_started', trip_started_at: new Date().toISOString() });
+        await tripService.updateRide(currentTrip.id, { status: 'trip_started', trip_started_at: new Date().toISOString() });
         const startPos: L.LatLngTuple = [driverLocation.lat, driverLocation.lng];
         const destPos: L.LatLngTuple = [currentTrip.destination_lat, currentTrip.destination_lng];
         const routeCoords = await fetchOsrmRoute(startPos, destPos);
@@ -559,7 +595,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     const finalFare = currentTrip.estimated_fare;
     
     try {
-        await userService.updateRide(currentTrip.id, { 
+        await tripService.updateRide(currentTrip.id, { 
             status: 'trip_completed',
             actual_fare: finalFare,
             // actual_trip_polyline is no longer needed or updated
@@ -586,8 +622,8 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     }
     setIsSubmittingCancellation(true);
     try {
-        await userService.updateRide(currentTrip.id, { status: 'cancelled_by_driver' });
-        await userService.submitCancellationReport({
+        await tripService.updateRide(currentTrip.id, { status: 'cancelled_by_driver' });
+        await tripService.submitCancellationReport({
             rideId: currentTrip.id,
             userId: loggedInUserId,
             role: 'driver',
@@ -639,13 +675,32 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         alert(message);
     }
   };
+
+    const handleAddPlaceSubmit = async (placeName: string) => {
+        if (!driverLocation || !loggedInUserId) {
+            alert(isRTL ? "موقعیت فعلی شما برای ثبت مکان در دسترس نیست." : "Your current location is not available to save a place.");
+            return;
+        }
+        setIsAddingPlace(true);
+        try {
+            await profileService.addUserDefinedPlace(placeName, driverLocation.lat, driverLocation.lng, loggedInUserId);
+            // Optionally show a success toast/message
+            refetchUserPlaces(); // Re-fetch places to show the new one immediately
+            setIsAddPlaceModalOpen(false);
+        } catch (error) {
+            console.error("Error adding user-defined place:", getDebugMessage(error));
+            // Show an error message in the modal or as a toast
+        } finally {
+            setIsAddingPlace(false);
+        }
+    };
   
   // Trip recovery effect
   useEffect(() => {
     const recoverTrip = async () => {
       if (!loggedInUserId || currentTrip) { return; }
       try {
-        const activeTrip = await userService.fetchActiveDriverTrip(loggedInUserId);
+        const activeTrip = await tripService.fetchActiveDriverTrip(loggedInUserId);
         if (activeTrip) {
           setCurrentTrip(activeTrip);
           
@@ -669,7 +724,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             setCurrentPassengerDetails({ id: activeTrip.passenger_id, fullName: activeTrip.passenger_name, phoneNumber: activeTrip.passenger_phone, profilePicUrl: null });
           } else {
             setIsLoadingPassengerDetails(true);
-            userService.fetchUserDetailsById(activeTrip.passenger_id)
+            profileService.fetchUserDetailsById(activeTrip.passenger_id)
                 .then(setCurrentPassengerDetails)
                 .catch(e => { setPassengerDetailsError(t.errorFetchingPassengerDetails); })
                 .finally(() => setIsLoadingPassengerDetails(false));
@@ -820,6 +875,9 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             </button>
           </div>
           <div style={headerActionsStyle}>
+             <button style={iconButtonStyle(!isOnline)} onMouseEnter={(e) => {if (isOnline) e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'}} onMouseLeave={(e) => {if (isOnline) e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'}} onClick={() => setIsAddPlaceModalOpen(true)} aria-label={t.addText} disabled={!isOnline}>
+                <AddLocationIcon />
+            </button>
             <button style={iconButtonStyle(!!currentTrip)} onMouseEnter={(e) => {if (!currentTrip) e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'}} onMouseLeave={(e) => {if (!currentTrip) e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'}} onClick={() => setShowIncomingDrawer(true)} aria-label={t.requestsButton} aria-haspopup="true" aria-expanded={showIncomingDrawer} disabled={!!currentTrip} > 
                 <ListIcon /> 
                 {allPendingRequests.length > 0 && <span style={badgeStyle}>{allPendingRequests.length}</span>} 
@@ -853,6 +911,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       <button style={gpsFabStyle} onClick={handleLocateDriver} aria-label={t.gpsButtonAriaLabel} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'} onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'} onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'} > <GpsIcon style={{ color: '#007AFF', width: '1.75rem', height: '1.75rem' }} /> </button>
       {requestInPopup && isOnline && isUserVerified && !currentTrip && ( <NewRideRequestPopup currentLang={currentLang} request={requestInPopup} allAppServices={allAppServices} timer={popupTimer} onAccept={() => handleAcceptRequest(requestInPopup)} onDecline={handleDeclineRequestFromPopup} driverLocation={driverLocation} /> )}
       <DriverProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} currentLang={currentLang} loggedInUserId={loggedInUserId} />
+      <AddPlaceModal isOpen={isAddPlaceModalOpen} onClose={() => setIsAddPlaceModalOpen(false)} onSubmit={handleAddPlaceSubmit} isSubmitting={isAddingPlace} currentLang={currentLang}/>
       <DrawerPanel currentLang={currentLang} isOpen={showIncomingDrawer} onClose={() => setShowIncomingDrawer(false)} title={t.incomingRequestsDrawerTitle} side={isRTL ? 'right' : 'left'} >
         {currentTrip ? (
             <p style={noDataTextStyle}>{t.cannotViewRequestsDuringTrip}</p>

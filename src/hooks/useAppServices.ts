@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useCallback, CSSProperties } from 'react';
 import { supabase } from '../services/supabase';
-import { translations, Language } from '../translations';
+import { translations, Language, TranslationSet } from '../translations';
 import { AppService, AppServiceCategory, DbService } from '../types';
 import { DefaultServiceIcon, RickshawIcon, TaxiIcon, MotorcycleRickshawIcon } from '../components/icons';
 import { getDebugMessage } from '../utils/helpers'; // Import from helpers
@@ -42,7 +43,7 @@ export const useAppServices = (currentLang: Language) => {
         return;
       }
 
-      const categoryDetails: { [key: string]: { nameKey: keyof typeof t } } = {
+      const categoryDetails: { [key: string]: { nameKey: keyof TranslationSet } } = {
         'passenger': { nameKey: 'serviceCategoryPassenger' },
         'cargo': { nameKey: 'serviceCategoryCargo' },
         'courier': { nameKey: 'serviceCategoryCourier' },
@@ -53,17 +54,21 @@ export const useAppServices = (currentLang: Language) => {
 
       (dbServices as DbService[]).forEach(dbService => {
         const imageComponent = serviceImageMap[dbService.image_identifier] || DefaultServiceIcon;
-        const nameKey = dbService.name_key as keyof typeof t;
-        const descKey = dbService.description_key as keyof typeof t;
         
+        const nameKeyCandidate = dbService.name_key;
+        const descKeyCandidate = dbService.description_key;
+
+        const nameKey: keyof TranslationSet = Object.prototype.hasOwnProperty.call(t, nameKeyCandidate) ? nameKeyCandidate as keyof TranslationSet : 'defaultServiceName';
+        const descKey: keyof TranslationSet = Object.prototype.hasOwnProperty.call(t, descKeyCandidate) ? descKeyCandidate as keyof TranslationSet : 'defaultServiceDesc';
+
         const pricePerKm = hardcodedRatesPerKm[dbService.image_identifier];
 
         // Only process services that have a hardcoded rate
         if (pricePerKm !== undefined) {
             const appService: AppService = {
               id: dbService.id,
-              nameKey: t[nameKey] ? nameKey : 'defaultServiceName' as keyof typeof t,
-              descKey: t[descKey] ? descKey : 'defaultServiceDesc' as keyof typeof t,
+              nameKey: nameKey,
+              descKey: descKey,
               price: undefined, // Per user request, no base fare
               pricePerKm: pricePerKm, // Use hardcoded rate
               minFare: dbService.min_fare,
@@ -84,7 +89,7 @@ export const useAppServices = (currentLang: Language) => {
 
       const processedCategories = Object.keys(categoriesMap).map(categoryId => ({
         id: categoryId,
-        nameKey: categoryDetails[categoryId]?.nameKey || (categoryId as keyof typeof t),
+        nameKey: categoryDetails[categoryId]?.nameKey || (categoryId as keyof TranslationSet),
         services: categoriesMap[categoryId],
       })).filter(cat => cat.services.length > 0); 
 

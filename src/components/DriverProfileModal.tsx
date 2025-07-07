@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, CSSProperties, useRef } from 'react';
 import { translations, Language } from '../translations';
 import { DriverProfileData, PredefinedSound } from '../types';
 import { CloseIcon, UserCircleIcon as DefaultProfileIcon, EditIcon } from '../components/icons';
-import { userService } from '../services/userService';
+import { profileService } from '../services';
 import { getDebugMessage } from '../utils/helpers';
 
 interface DriverProfileModalProps {
@@ -56,7 +57,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
                 setSelectedCustomSoundFile(null);
                 setImageLoadError(false);
                 try {
-                    const fetchedData = await userService.fetchDriverProfile(loggedInUserId);
+                    const fetchedData = await profileService.fetchDriverProfile(loggedInUserId);
                     
                     setProfileData(fetchedData);
                     setInitialProfileData(fetchedData);
@@ -150,7 +151,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
             });
     
             if (Object.keys(dataToUpdate).length > 0) {
-                 await userService.updateDriverProfile(loggedInUserId, dataToUpdate);
+                 await profileService.updateDriverProfile(loggedInUserId, dataToUpdate);
             }
             
             const newInitialState = { ...initialProfileData, ...profileData };

@@ -4,7 +4,7 @@ import { supabase } from '../services/supabase';
 import { translations, Language } from '../translations';
 import { Screen, UserRole } from '../types';
 import { getDebugMessage } from '../utils/helpers';
-import { userService } from '../services/userService';
+import { authService, profileService } from '../services';
 
 type ShowToastFunction = (message: string, type: 'error' | 'success' | 'info') => void;
 
@@ -29,10 +29,10 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
 
   useEffect(() => {
     const checkUserSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await authService.getSession();
       if (session) {
         try {
-          const sessionData = await userService.fetchUserSessionData(session.user.id);
+          const sessionData = await profileService.fetchUserSessionData(session.user.id);
           if (sessionData) {
             setLoggedInUserId(sessionData.userId);
             setLoggedInUserFullName(sessionData.fullName);
@@ -40,8 +40,6 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
             setUserPhoneNumber(sessionData.phoneNumber || '');
             setIsUserVerified(sessionData.isVerified);
 
-            // Per user request, even unverified users should be sent to pending screen
-            // and not blocked here, so this check is correct.
             if (!sessionData.isVerified) {
                 setCurrentScreen('pendingApproval');
             } else {
@@ -50,14 +48,13 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
           }
         } catch (error) {
           console.error("Failed to restore session:", getDebugMessage(error));
-          await supabase.auth.signOut(); // Clear invalid session
+          await authService.signOut(); // Clear invalid session
         }
       }
       setIsInitializing(false);
     };
 
     checkUserSession();
-    // Intentionally run only once on mount. `setCurrentScreen` is stable.
   }, []);
 
 
@@ -66,7 +63,7 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
     setUserRole(role);
     
     try {
-        const existingUser = await userService.fetchUserByPhoneNumber(phoneNumber);
+        const existingUser = await authService.fetchUserByPhoneNumber(phoneNumber);
 
         if (existingUser) {
           if (existingUser.role !== role) {
@@ -95,29 +92,15 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
       let userPublicData;
 
       if (passwordMode === 'create') {
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: fakeEmail,
-          password: password,
-        });
-
-        if (signUpError) {
-            // Re-check for existing user to handle race conditions or outdated checks
-            if (signUpError.message.includes("User already registered")) {
-                showToast(signUpError.message, 'error');
-                setPasswordMode('enter'); // Switch to enter mode
-                setCurrentScreen('pin'); // Re-render pin screen in enter mode
-                return;
-            }
-            throw signUpError;
-        }
-        if (!signUpData.user) throw new Error("Supabase signup did not return a user.");
-        authUserId = signUpData.user.id;
+        const authResult = await authService.signUp(fakeEmail, password);
+        if (!authResult || !authResult.user) throw new Error("Supabase signup did not return a user.");
+        authUserId = authResult.user.id;
 
         const defaultFullName = userRole === 'passenger' ?
           t.defaultPassengerName :
           (currentLang === 'fa' ? 'راننده' : currentLang === 'ps' ? 'چلوونکی' : 'Driver');
         
-        userPublicData = await userService.createUserInPublicTable({
+        userPublicData = await profileService.createUserInPublicTable({
           userId: authUserId,
           phoneNumber: userPhoneNumber,
           role: userRole,
@@ -126,27 +109,15 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
         });
 
         if (userRole === 'driver') {
-            await userService.createDriverProfileEntry(authUserId);
+            await profileService.createDriverProfileEntry(authUserId);
         }
 
       } else { // passwordMode === 'enter'
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: fakeEmail,
-          password: password,
-        });
-        if (signInError) {
-             if (signInError.message.includes("Invalid login credentials")) {
-                showToast(t.incorrectPinError, 'error');
-             } else {
-                throw signInError;
-             }
-             return;
-        }
-        if (!signInData.user) throw new Error("Supabase signin did not return a user.");
-        authUserId = signInData.user.id;
-
-        // Fetch fresh user data now that we are authenticated
-        userPublicData = await userService.fetchUserSessionData(authUserId);
+        const authResult = await authService.signIn(fakeEmail, password);
+        if (!authResult || !authResult.user) throw new Error("Supabase signin did not return a user.");
+        authUserId = authResult.user.id;
+        
+        userPublicData = await profileService.fetchUserSessionData(authUserId);
          if (!userPublicData) {
             throw new Error("Could not fetch user data after sign-in.");
         }
@@ -171,12 +142,22 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
 
     } catch (error: any) {
       console.error("useAuth: Password confirmation / User handling error -", getDebugMessage(error), error);
+      if (error.message && error.message.includes("User already registered")) {
+        showToast(error.message, 'error');
+        setPasswordMode('enter'); 
+        setCurrentScreen('pin');
+        return;
+      }
+      if (error.message && error.message.includes("Invalid login credentials")) {
+        showToast(t.incorrectPinError, 'error');
+        return;
+      }
       showToast(t.userCreationError, 'error');
     }
   }, [userPhoneNumber, userRole, passwordMode, currentLang, setCurrentScreen, t, showToast]);
 
   const handleLogoutFromDashboard = useCallback(async () => {
-    await supabase.auth.signOut();
+    await authService.signOut();
     setCurrentScreen('phoneInput');
     setUserPhoneNumber('');
     setUserRole('passenger');
@@ -192,7 +173,7 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
     loggedInUserId,
     loggedInUserFullName,
     isUserVerified,
-    pinMode: passwordMode, // Keep prop name as 'pinMode' for App.tsx compatibility
+    pinMode: passwordMode,
     handlePhoneSubmitted,
     handlePinConfirmed: handlePasswordConfirmed,
     handleBackToPhoneInput,

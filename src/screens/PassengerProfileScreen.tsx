@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, CSSProperties, useRef } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import { PassengerProfileData } from '../types';
-import { userService } from '../services/userService';
+import { profileService } from '../services';
 import { BackArrowIcon, UserCircleIcon, EditIcon, CloseIcon } from '../components/icons';
 import { getDebugMessage } from '../utils/helpers';
 
@@ -44,7 +45,7 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
         setSelectedImageFile(null);
         setImagePreviewUrl(null);
         try {
-          const fetchedData = await userService.fetchUserDetailsById(loggedInUserId);
+          const fetchedData = await profileService.fetchUserDetailsById(loggedInUserId);
           if (fetchedData) {
             const data = {
                 userId: fetchedData.id,
@@ -131,11 +132,11 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
 
         if (selectedImageFile) {
             if (initialProfileData.profilePicUrl) {
-                await userService.deleteProfilePicture(initialProfileData.profilePicUrl);
+                await profileService.deleteProfilePicture(initialProfileData.profilePicUrl);
             }
-            newUrl = await userService.uploadProfilePicture(loggedInUserId, selectedImageFile);
+            newUrl = await profileService.uploadProfilePicture(loggedInUserId, selectedImageFile);
         } else if (initialProfileData.profilePicUrl && !profileData.profilePicUrl) {
-            await userService.deleteProfilePicture(initialProfileData.profilePicUrl);
+            await profileService.deleteProfilePicture(initialProfileData.profilePicUrl);
             newUrl = '';
         }
 
@@ -148,7 +149,7 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
         }
 
         if (Object.keys(dataToUpdate).length > 0) {
-            const updatedUser = await userService.updateUser(loggedInUserId, dataToUpdate);
+            const updatedUser = await profileService.updateUser(loggedInUserId, dataToUpdate);
             
             const newProfileState = {
                 userId: loggedInUserId,

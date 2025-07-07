@@ -1,6 +1,6 @@
 
 import React, { CSSProperties } from 'react';
-import { translations } from '../translations';
+import { translations, TranslationSet } from '../translations';
 
 export type Language = 'fa' | 'ps' | 'en';
 
@@ -24,8 +24,8 @@ export interface DbService {
 // Frontend Service type (after mapping image_identifier)
 export interface AppService {
     id: string;
-    nameKey: keyof typeof translations.fa;
-    descKey: keyof typeof translations.fa;
+    nameKey: keyof TranslationSet;
+    descKey: keyof TranslationSet;
     price?: number;
     pricePerKm?: number;
     minFare?: number | null;
@@ -35,9 +35,23 @@ export interface AppService {
 
 export interface AppServiceCategory {
     id: string;
-    nameKey: keyof typeof translations.fa;
+    nameKey: keyof TranslationSet;
     services: AppService[];
 }
+
+export type RideStatus =
+  | 'pending'
+  | 'accepted'
+  | 'driver_en_route_to_origin'
+  | 'trip_started'
+  | 'driver_at_destination'
+  | 'trip_completed'
+  | 'cancelled'
+  | 'cancelled_by_driver'
+  | 'cancelled_by_passenger'
+  | 'timed_out_passenger'
+  | 'no_drivers_available';
+
 
 export interface RideRequest {
   id: string;
@@ -55,7 +69,7 @@ export interface RideRequest {
   destination_lng: number;
   service_id: string;
   estimated_fare?: number | null;
-  status: string; // e.g., 'pending', 'accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination', 'trip_completed', 'cancelled', 'cancelled_by_driver', 'cancelled_by_passenger', 'timed_out_passenger'
+  status: RideStatus; // e.g., 'pending', 'accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination', 'trip_completed', 'cancelled', 'cancelled_by_driver', 'cancelled_by_passenger', 'timed_out_passenger'
   accepted_at?: string | null;
   driver_arrived_at_origin_at?: string | null;
   trip_started_at?: string | null;
@@ -127,7 +141,7 @@ export enum DriverTripPhase {
 
 export type PredefinedSound = {
   id: string;
-  nameKey: keyof typeof translations.fa;
+  nameKey: string;
   fileName: string; // e.g., "default_notification.mp3"
 };
 
@@ -146,4 +160,20 @@ export interface DestinationSuggestion {
   description: string;
   latitude: number;
   longitude: number;
+}
+
+// Represents a location defined by a user, fetched from the DB
+export interface UserDefinedPlace {
+  id: string;
+  created_at: string;
+  name: string;
+  // Supabase returns a GeoJSON string for geography types, which needs parsing.
+  // The 'location' field from DB is a string that looks like: 'POINT(62.196948 34.343118)'
+  // We will parse it into this object structure in the hook.
+  location: {
+    lat: number;
+    lng: number;
+  };
+  type?: string | null; // e.g., "Restaurant", "Square", "Shop"
+  created_by_user_id: string;
 }
