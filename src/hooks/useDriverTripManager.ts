@@ -1,5 +1,6 @@
 
 import { useState, useCallback, useRef } from 'react';
+import L from 'leaflet';
 import { tripService, profileService } from '../services';
 import { RideRequest, PassengerDetails, DriverTripPhase } from '../types';
 import { getDebugMessage } from '../utils/helpers';

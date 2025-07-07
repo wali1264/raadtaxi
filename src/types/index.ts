@@ -174,6 +174,5 @@ export interface UserDefinedPlace {
     lat: number;
     lng: number;
   };
-  type?: string | null; // e.g., "Restaurant", "Square", "Shop"
-  created_by_user_id: string;
+  user_id: string;
 }

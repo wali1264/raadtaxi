@@ -4,7 +4,7 @@ import { supabase } from '../services/supabase';
 import { tripService, profileService } from '../services';
 import { useAppContext } from '../contexts/AppContext';
 import { RealtimeChannel } from '@supabase/supabase-js';
-import { DriverSearchState, TripPhase, TripSheetDisplayLevel, DriverDetails, AppService } from '../types';
+import { DriverSearchState, TripPhase, TripSheetDisplayLevel, DriverDetails, AppService, RideStatus } from '../types';
 import { getDebugMessage } from '../utils/helpers';
 import { PASSENGER_REQUEST_TIMEOUT_MS } from '../config/constants';
 
@@ -88,7 +88,7 @@ export const usePassengerTrip = () => {
             return;
         }
         
-        const rideRequestPayload = { passenger_id: loggedInUserId, passenger_name: serviceFor === 'self' ? loggedInUserFullName : thirdPartyName.trim(), passenger_phone: serviceFor === 'self' ? null : thirdPartyPhone, is_third_party: serviceFor === 'other', origin_address: origin.address, origin_lat: origin.lat, origin_lng: origin.lng, destination_address: dest.address, destination_lat: dest.lat, destination_lng: dest.lng, service_id: service.id, estimated_fare: price, status: 'pending' };
+        const rideRequestPayload = { passenger_id: loggedInUserId, passenger_name: serviceFor === 'self' ? loggedInUserFullName : thirdPartyName.trim(), passenger_phone: serviceFor === 'self' ? null : thirdPartyPhone, is_third_party: serviceFor === 'other', origin_address: origin.address, origin_lat: origin.lat, origin_lng: origin.lng, destination_address: dest.address, destination_lat: dest.lat, destination_lng: dest.lng, service_id: service.id, estimated_fare: price, status: 'pending' as RideStatus };
 
         setDriverSearchState('searching');
         setShowDriverSearchSheet(true);

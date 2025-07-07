@@ -6,6 +6,7 @@ import { getDebugMessage } from '../utils/helpers';
 
 // A utility function to parse the PostGIS POINT string 'POINT(lng lat)'
 const parsePoint = (pointString: string): { lat: number; lng: number } | null => {
+    if (!pointString || typeof pointString !== 'string') return null;
     const match = pointString.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
     if (match && match[1] && match[2]) {
         const lng = parseFloat(match[1]);
@@ -20,8 +21,7 @@ interface RpcPlace {
     created_at: string;
     name: string;
     location_text: string;
-    type: string | null;
-    created_by_user_id: string;
+    user_id: string;
 }
 
 export const useUserDefinedPlaces = () => {
@@ -51,8 +51,7 @@ export const useUserDefinedPlaces = () => {
                         created_at: item.created_at,
                         name: item.name,
                         location: location,
-                        type: item.type,
-                        created_by_user_id: item.created_by_user_id,
+                        user_id: item.user_id,
                     };
                 }).filter((p): p is UserDefinedPlace => p !== null); // Filter out nulls
                 
@@ -74,20 +73,11 @@ export const useUserDefinedPlaces = () => {
             .channel('user_defined_places_changes')
             .on(
                 'postgres_changes',
-                { event: 'INSERT', schema: 'public', table: 'user_defined_places' },
-                (payload) => {
-                    const location = parsePoint((payload.new as any).location);
-                    if (location) {
-                         const newPlace: UserDefinedPlace = {
-                            id: payload.new.id,
-                            created_at: payload.new.created_at,
-                            name: payload.new.name,
-                            location: location,
-                            type: payload.new.type,
-                            created_by_user_id: payload.new.created_by_user_id,
-                        };
-                        setUserDefinedPlaces((prevPlaces) => [...prevPlaces, newPlace]);
-                    }
+                { event: '*', schema: 'public', table: 'user_defined_places' },
+                () => {
+                    // Refetch the entire list on any change to ensure data consistency
+                    // and avoid parsing differences between initial fetch and realtime updates.
+                    fetchPlaces();
                 }
             )
             .subscribe();
@@ -100,29 +90,39 @@ export const useUserDefinedPlaces = () => {
     return { userDefinedPlaces, isLoading, error, refetch: fetchPlaces };
 };
 
-// NOTE: This hook depends on a new Supabase RPC function named `get_all_user_places`.
-// You must create this function in your Supabase SQL Editor:
+// NOTE: This hook depends on a Supabase RPC function named `get_all_user_places`.
+// You must create this function in your Supabase SQL Editor. If you are updating the function
+// because its returned columns have changed, you MUST drop the old one first.
 /*
-CREATE OR REPLACE FUNCTION get_all_user_places()
+-- First, safely remove the old function if it exists.
+-- This is necessary if you are changing the columns it returns.
+DROP FUNCTION IF EXISTS public.get_all_user_places();
+
+-- Now, create the corrected function.
+CREATE OR REPLACE FUNCTION public.get_all_user_places()
 RETURNS TABLE(
     id uuid,
     created_at timestamptz,
     name text,
     location_text text, -- Return geography as text
-    type text,
-    created_by_user_id uuid
-) AS $$
+    user_id uuid
+) 
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 BEGIN
+    -- This function now respects Row Level Security by only returning places for the currently authenticated user.
     RETURN QUERY 
     SELECT 
         udp.id,
         udp.created_at,
         udp.name,
         ST_AsText(udp.location) as location_text,
-        udp.type,
-        udp.created_by_user_id
+        udp.user_id
     FROM 
-        public.user_defined_places udp;
+        public.user_defined_places AS udp
+    WHERE
+        auth.uid() = udp.user_id; -- This ensures users only get their own places
 END;
-$$ LANGUAGE plpgsql;
+$$;
 */

@@ -274,8 +274,7 @@ export const profileService = {
     const { error } = await supabase.from('user_defined_places').insert([{
         name: name,
         location: `POINT(${lng} ${lat})`,
-        created_by_user_id: userId,
-        type: 'General' // Default type
+        user_id: userId
     }]);
 
     if (error) {
