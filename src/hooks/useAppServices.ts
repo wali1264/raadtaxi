@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, CSSProperties } from 'react';
 import { supabase } from '../services/supabase';
 import { translations, Language, TranslationSet } from '../translations';
@@ -34,7 +33,7 @@ export const useAppServices = (currentLang: Language) => {
     try {
       const { data: dbServices, error } = await supabase
         .from('services')
-        .select('*')
+        .select('id, name_key, description_key, image_identifier, base_fare, price_per_km, price_per_minute, category, min_fare, is_active')
         .eq('is_active', true);
 
       if (error) {
@@ -58,8 +57,15 @@ export const useAppServices = (currentLang: Language) => {
         const nameKeyCandidate = dbService.name_key;
         const descKeyCandidate = dbService.description_key;
 
-        const nameKey: keyof TranslationSet = Object.prototype.hasOwnProperty.call(t, nameKeyCandidate) ? nameKeyCandidate as keyof TranslationSet : 'defaultServiceName';
-        const descKey: keyof TranslationSet = Object.prototype.hasOwnProperty.call(t, descKeyCandidate) ? descKeyCandidate as keyof TranslationSet : 'defaultServiceDesc';
+        let nameKey: keyof TranslationSet = 'defaultServiceName';
+        if (Object.prototype.hasOwnProperty.call(t, nameKeyCandidate)) {
+            nameKey = nameKeyCandidate as keyof TranslationSet;
+        }
+
+        let descKey: keyof TranslationSet = 'defaultServiceDesc';
+        if (Object.prototype.hasOwnProperty.call(t, descKeyCandidate)) {
+            descKey = descKeyCandidate as keyof TranslationSet;
+        }
 
         const pricePerKm = hardcodedRatesPerKm[dbService.image_identifier];
 
@@ -101,7 +107,7 @@ export const useAppServices = (currentLang: Language) => {
     } finally {
       setIsLoadingServices(false);
     }
-  }, [currentLang, t]);
+  }, [currentLang, t.fetchingServicesError, t.serviceCategoryPassenger, t.serviceCategoryCargo, t.serviceCategoryCourier, t.defaultServiceName, t.defaultServiceDesc]);
 
   useEffect(() => {
     fetchAndProcessServices();

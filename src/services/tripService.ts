@@ -1,14 +1,15 @@
-
 import { supabase } from './supabase';
-import { UserRole, RideRequest } from '../types';
+import { UserRole, RideRequest, RideStatus } from '../types';
 import { getDebugMessage } from '../utils/helpers'; 
+
+const RIDE_REQUEST_COLUMNS = 'id, created_at, passenger_id, passenger_name, passenger_phone, is_third_party, driver_id, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, service_id, estimated_fare, status, updated_at, accepted_at, driver_arrived_at_origin_at, trip_started_at, driver_arrived_at_destination_at, route_to_origin_polyline, route_to_destination_polyline, actual_fare';
 
 export const tripService = {
   async createRideRequest(requestDetails: Omit<RideRequest, 'id' | 'created_at' | 'updated_at'>): Promise<RideRequest> {
     const { data, error } = await supabase
         .from('ride_requests')
         .insert([requestDetails])
-        .select()
+        .select(RIDE_REQUEST_COLUMNS)
         .single();
     if (error || !data) {
         console.error("TripService: Error creating ride request -", getDebugMessage(error), error);
@@ -20,7 +21,7 @@ export const tripService = {
   async fetchRideRequestById(rideId: string): Promise<RideRequest | null> {
     const { data, error } = await supabase
         .from('ride_requests')
-        .select('*')
+        .select(RIDE_REQUEST_COLUMNS)
         .eq('id', rideId)
         .single();
     if (error) {
@@ -39,7 +40,7 @@ export const tripService = {
         .from('ride_requests')
         .update(updatePayload)
         .eq('id', rideId)
-        .select()
+        .select(RIDE_REQUEST_COLUMNS)
         .single();
     if (error) {
         console.error("TripService: Error updating ride -", getDebugMessage(error), error);
@@ -52,13 +53,13 @@ export const tripService = {
     const { rideId, userId, role, reasonKey, customReason } = details;
     const { error } = await supabase
       .from('ride_cancellations')
-      .insert({
+      .insert([{
         ride_request_id: rideId,
         cancelled_by_user_id: userId,
         canceller_role: role,
         reason_key: reasonKey,
         custom_reason: customReason,
-      } as any);
+      }]);
 
     if (error) {
       console.error("TripService: Error submitting cancellation report -", getDebugMessage(error), error);
@@ -67,11 +68,12 @@ export const tripService = {
   },
 
   async fetchActivePassengerTrip(passengerId: string): Promise<RideRequest | null> {
+    const activeStatuses: RideStatus[] = ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination'];
     const { data, error } = await supabase
         .from('ride_requests')
-        .select('*')
+        .select(RIDE_REQUEST_COLUMNS)
         .eq('passenger_id', passengerId)
-        .in('status', ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination'])
+        .in('status', activeStatuses)
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
@@ -84,11 +86,12 @@ export const tripService = {
   },
 
   async fetchActiveDriverTrip(driverId: string): Promise<RideRequest | null> {
+    const activeStatuses: RideStatus[] = ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination'];
     const { data, error } = await supabase
       .from('ride_requests')
-      .select('*')
+      .select(RIDE_REQUEST_COLUMNS)
       .eq('driver_id', driverId)
-      .in('status', ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination'])
+      .in('status', activeStatuses)
       .order('accepted_at', { ascending: false }) 
       .limit(1)
       .single();
@@ -101,7 +104,7 @@ export const tripService = {
   },
 
   async fetchAllPendingRequestsForDriver(): Promise<RideRequest[]> {
-    const { data, error } = await supabase.from('ride_requests').select('*').eq('status', 'pending').is('driver_id', null); 
+    const { data, error } = await supabase.from('ride_requests').select(RIDE_REQUEST_COLUMNS).eq('status', 'pending').is('driver_id', null); 
     if (error) { 
         console.error('[TripService] Error fetching all pending requests:', getDebugMessage(error), error); 
         throw error;

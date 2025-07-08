@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -43,6 +42,7 @@ const LogoutIcon = ({ style }: { style?: CSSProperties }) => (
 );
 // --- End Local Icon Components ---
 
+const RIDE_REQUEST_COLUMNS = 'id, created_at, passenger_id, passenger_name, passenger_phone, is_third_party, driver_id, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, service_id, estimated_fare, status, updated_at, accepted_at, driver_arrived_at_origin_at, trip_started_at, driver_arrived_at_destination_at, route_to_origin_polyline, route_to_destination_polyline, actual_fare';
 
 export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps): JSX.Element => {
   const { 
@@ -102,6 +102,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const mapInstanceRef = useRef<L.Map | null>(null);
   const locationWatchIdRef = useRef<number | null>(null);
   const userPlacesLayerRef = useRef<L.LayerGroup | null>(null);
+  const userPlaceMarkersRef = useRef<L.Marker[]>([]);
 
   const { userDefinedPlaces, refetch: refetchUserPlaces } = useUserDefinedPlaces();
 
@@ -229,26 +230,63 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
     useEffect(() => {
         const map = mapInstanceRef.current;
+        if (!map) return;
+
+        const handleZoomEnd = () => {
+            const zoom = map.getZoom();
+            userPlaceMarkersRef.current.forEach(marker => {
+                if (zoom >= 15) {
+                    marker.openTooltip();
+                } else {
+                    marker.closeTooltip();
+                }
+            });
+        };
+        map.on('zoomend', handleZoomEnd);
+        handleZoomEnd();
+
+        return () => {
+            map.off('zoomend', handleZoomEnd);
+        };
+    }, [mapInstanceRef.current]);
+
+    useEffect(() => {
+        const map = mapInstanceRef.current;
         const layer = userPlacesLayerRef.current;
         if (!map || !layer) return;
 
         layer.clearLayers();
-        const zoom = map.getZoom();
-        if (zoom >= 14) { // Only show at closer zoom levels
-            userDefinedPlaces.forEach(place => {
-                const iconHTML = ReactDOMServer.renderToString(<UserPlaceMarkerIcon />);
-                const userPlaceIcon = L.divIcon({
-                    html: iconHTML,
-                    className: 'user-defined-place-icon',
-                    iconSize: [24, 24],
-                    iconAnchor: [12, 24],
-                });
-                L.marker([place.location.lat, place.location.lng], { icon: userPlaceIcon })
-                    .addTo(layer)
-                    .bindPopup(`<b>${place.name}</b>`);
+        userPlaceMarkersRef.current = [];
+        
+        userDefinedPlaces.forEach(place => {
+            const iconHTML = ReactDOMServer.renderToString(<UserPlaceMarkerIcon />);
+            const userPlaceIcon = L.divIcon({
+                html: iconHTML,
+                className: 'user-defined-place-icon',
+                iconSize: [24, 38],
+                iconAnchor: [12, 38],
             });
-        }
+
+            const marker = L.marker([place.location.lat, place.location.lng], { icon: userPlaceIcon })
+                .addTo(layer)
+                .bindTooltip(place.name, {
+                    permanent: true,
+                    direction: 'right',
+                    offset: [10, -25], // Adjust to align vertically with the marker's center
+                    className: 'user-place-label'
+                });
+
+            userPlaceMarkersRef.current.push(marker);
+        });
+
+        const currentZoom = map.getZoom();
+        userPlaceMarkersRef.current.forEach(marker => {
+            if (currentZoom < 15) {
+                marker.closeTooltip();
+            }
+        });
     }, [userDefinedPlaces, mapInstanceRef.current]);
+
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -287,13 +325,13 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
           const { latitude, longitude, heading } = position.coords;
           setDriverLocation({ lat: latitude, lng: longitude });
           try {
-            await supabase.from('driver_locations').upsert([{
+            await supabase.from('driver_locations').upsert({
                 driver_id: loggedInUserId,
                 latitude: latitude,
                 longitude: longitude,
                 heading: heading,
                 timestamp: new Date().toISOString(),
-            }], { onConflict: 'driver_id' });
+            }, { onConflict: 'driver_id' });
 
             if (actualDriverGpsMarker.current) {
                 actualDriverGpsMarker.current.setLatLng([latitude, longitude]);
@@ -319,7 +357,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     if (!isOnline || !isUserVerified) { setAllPendingRequests([]); setIsLoadingAllPending(false); return; }
     setIsLoadingAllPending(true); setFetchError(null);
     try {
-      const { data, error } = await supabase.from('ride_requests').select('*').eq('status', 'pending').is('driver_id', null); 
+      const { data, error } = await supabase.from('ride_requests').select(RIDE_REQUEST_COLUMNS).eq('status', 'pending').is('driver_id', null); 
       if (error) { console.error('[DriverDashboard] Error fetching all pending requests:', getDebugMessage(error), error); setFetchError(t.errorFetchingRequests); setAllPendingRequests([]); }
       else { 
           const nonDeclinedRequests = (data as RideRequest[]).filter(
@@ -329,7 +367,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       }
     } catch (e) { console.error('[DriverDashboard] Exception during fetchAllPendingRequests:', getDebugMessage(e), e); setFetchError(t.errorFetchingRequests); setAllPendingRequests([]); }
     finally { setIsLoadingAllPending(false); }
-  },[t.errorFetchingRequests, isOnline, isUserVerified, supabase, currentTrip, timedOutOrDeclinedRequests]);
+  },[t.errorFetchingRequests, isOnline, isUserVerified, currentTrip, timedOutOrDeclinedRequests]);
 
   useEffect(() => {
     if (isOnline && isUserVerified && !requestInPopup && !currentTrip && allPendingRequests.length > 0) {
@@ -598,13 +636,13 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         await tripService.updateRide(currentTrip.id, { 
             status: 'trip_completed',
             actual_fare: finalFare,
-            // actual_trip_polyline is no longer needed or updated
         });
         
         setIsCalculatingFare(false);
+        const passengerName = currentPassengerDetails?.fullName || t.defaultPassengerName;
         setFareSummary({ 
             amount: Math.round(finalFare ?? 0), 
-            passengerName: currentPassengerDetails?.fullName || t.defaultPassengerName 
+            passengerName: passengerName 
         });
 
     } catch (error) {

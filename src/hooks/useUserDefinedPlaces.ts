@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { UserDefinedPlace } from '../types';
@@ -34,15 +33,15 @@ export const useUserDefinedPlaces = () => {
         setError(null);
         try {
             // Using a RPC function is safer for selecting geography columns as text
-            const { data, error: rpcError } = await supabase.rpc<RpcPlace[]>('get_all_user_places');
+            const { data, error: rpcError } = await supabase.rpc('get_all_user_places');
             
             if (rpcError) {
                 console.error("useUserDefinedPlaces: Error fetching places via RPC", getDebugMessage(rpcError), rpcError);
                 throw rpcError;
             }
 
-            if (data) {
-                const parsedPlaces = data.map((item: RpcPlace) => {
+            if (data && Array.isArray(data)) {
+                const parsedPlaces = (data as RpcPlace[]).map((item: RpcPlace) => {
                     const location = parsePoint(item.location_text);
                     if (!location) return null; // Skip if location is invalid
                     
@@ -98,20 +97,24 @@ export const useUserDefinedPlaces = () => {
 -- This is necessary if you are changing the columns it returns.
 DROP FUNCTION IF EXISTS public.get_all_user_places();
 
--- Now, create the corrected function.
+-- Now, create the corrected function to make places visible to everyone.
 CREATE OR REPLACE FUNCTION public.get_all_user_places()
 RETURNS TABLE(
     id uuid,
     created_at timestamptz,
     name text,
-    location_text text, -- Return geography as text
+    location_text text, -- Return geography as text to avoid client-side parsing issues
     user_id uuid
 ) 
 LANGUAGE plpgsql
+-- SECURITY DEFINER allows this function to bypass RLS on the `user_defined_places` table if needed,
+-- which is what we want here in order to show all places to all users.
+-- Make sure the table itself still has RLS enabled for INSERT/UPDATE/DELETE to protect data modification.
 SECURITY DEFINER
 AS $$
 BEGIN
-    -- This function now respects Row Level Security by only returning places for the currently authenticated user.
+    -- The WHERE clause has been removed. This function now returns ALL user defined places
+    -- to any authenticated user who calls it, which is the desired behavior for this feature.
     RETURN QUERY 
     SELECT 
         udp.id,
@@ -120,9 +123,7 @@ BEGIN
         ST_AsText(udp.location) as location_text,
         udp.user_id
     FROM 
-        public.user_defined_places AS udp
-    WHERE
-        auth.uid() = udp.user_id; -- This ensures users only get their own places
+        public.user_defined_places AS udp;
 END;
 $$;
 */

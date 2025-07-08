@@ -1,25 +1,24 @@
+
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Database } from '../types/supabase'; // Import the new types
 
 const supabaseUrl = 'https://lpxomioaloqfrueikjcc.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxweG9taW9hbG9xZnJ1ZWlramNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA1NjY2MTQsImV4cCI6MjA2NjE0MjYxNH0.VLo7EVAHrrnk2GkLcvrZV6p7mVOCwkMrGEyW_UxnSAc';
 
-let supabaseExport: SupabaseClient;
+let supabaseExport: SupabaseClient<Database>; // Use the Database type
 
-// The customFetch wrapper and custom User-Agent header were previously removed
-// as they can cause "TypeError: Failed to fetch" in certain sandboxed browser environments.
-// To further guard against this, we are explicitly configuring the client to ensure
-// no unexpected environmental defaults are picked up.
-
+// The `global` configuration block was removed from `createClient`.
+// The previous configuration, `global: { headers: {} }`, was likely intended
+// to prevent "TypeError: Failed to fetch" in sandboxed environments by removing
+// potentially problematic default headers. However, this had the unintended
+// side effect of also removing the 'Authorization' header managed by the Supabase
+// client, causing authenticated requests to fail Row-Level Security policies.
+// By removing this override, we restore the default client behavior, which correctly
+// handles auth tokens. This change is necessary to fix the critical RLS issue.
 try {
-  // Initialize the Supabase client with an explicit, empty headers object.
-  // This helps ensure that no problematic default headers are being added by the
-  // environment, which can resolve "Failed to fetch" errors. The supabase-js
-  // library will still correctly add its own necessary 'apikey' and 'Authorization' headers.
-  const client = createClient(supabaseUrl, supabaseKey, {
-    global: {
-      headers: {}
-    }
-  });
+  // Initialize the Supabase client without the `global` headers override,
+  // and apply the Database generic type for full type safety.
+  const client = createClient<Database>(supabaseUrl, supabaseKey);
 
   if (!client || typeof client.from !== 'function') {
     console.error("Supabase client initialization failed: 'from' method is missing or client is invalid.");

@@ -46,6 +46,18 @@ const globalStyles = `
     #root { max-width: 100vw; max-height: 100vh; }
   }
   .leaflet-control-zoom { display: none !important; }
+
+  .user-place-label {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    color: #333;
+    font-weight: 500;
+    font-size: 12px;
+    padding: 0;
+    white-space: nowrap;
+    text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+  }
 `;
 
 // Inject global styles into the <style> tag in index.html

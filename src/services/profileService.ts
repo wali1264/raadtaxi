@@ -1,10 +1,31 @@
-
 import { supabase } from './supabase';
-import { UserRole, Language, DriverProfileData, PassengerDetails, UserSessionData } from '../types';
+import { UserRole, Language, DriverProfileData, PassengerDetails, UserSessionData, UserDefinedPlace } from '../types';
 import { getDebugMessage } from '../utils/helpers'; 
 
 const DEFAULT_SOUND_URL = 'https://actions.google.com/sounds/v1/notifications/card_dismiss.ogg';
 const BUCKET_NAME = 'profile-pictures';
+
+// These helpers are also in useUserDefinedPlaces.ts.
+// In a larger refactor, they'd move to a shared file.
+const parsePoint = (pointString: string): { lat: number; lng: number } | null => {
+    if (!pointString || typeof pointString !== 'string') return null;
+    const match = pointString.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
+    if (match && match[1] && match[2]) {
+        const lng = parseFloat(match[1]);
+        const lat = parseFloat(match[2]);
+        return { lat, lng };
+    }
+    return null;
+};
+
+interface RpcPlace {
+  id: string;
+  created_at: string;
+  name: string;
+  location_text: string;
+  user_id: string;
+}
+
 
 export const profileService = {
   async createUserInPublicTable(details: { userId: string, phoneNumber: string, role: UserRole, fullName: string, currentLang: Language }) {
@@ -37,7 +58,7 @@ export const profileService = {
   },
 
   async updateUser(userId: string, updates: { role?: UserRole, full_name?: string, profile_pic_url?: string | null }) {
-    const updatePayload: any = { ...updates, updated_at: new Date().toISOString() };
+    const updatePayload = { ...updates, updated_at: new Date().toISOString() };
     
     const { data, error } = await supabase
       .from('users')
@@ -282,5 +303,71 @@ export const profileService = {
         throw error;
     }
     return true;
-  }
+  },
+
+  // NOTE: This new function requires a corresponding RPC function in Supabase.
+  // Please add the SQL function below to your Supabase project's SQL Editor.
+  /*
+    -- SQL to create the search function in Supabase
+    CREATE OR REPLACE FUNCTION search_user_places_by_name(search_query TEXT)
+    RETURNS TABLE(
+        id uuid,
+        created_at timestamptz,
+        name text,
+        location_text text,
+        user_id uuid
+    ) 
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    AS $$
+    BEGIN
+        RETURN QUERY 
+        SELECT 
+            udp.id,
+            udp.created_at,
+            udp.name,
+            ST_AsText(udp.location) as location_text,
+            udp.user_id
+        FROM 
+            public.user_defined_places AS udp
+        WHERE 
+            udp.name ILIKE '%' || search_query || '%';
+    END;
+    $$;
+  */
+  async searchUserDefinedPlaces(query: string): Promise<UserDefinedPlace[]> {
+    if (!query.trim()) return [];
+
+    try {
+        const { data, error } = await supabase.rpc('search_user_places_by_name', {
+            search_query: query
+        });
+
+        if (error) {
+            console.error("ProfileService: Error calling search_user_places_by_name RPC", getDebugMessage(error), error);
+            throw error;
+        }
+
+        if (data && Array.isArray(data)) {
+            const parsedPlaces = (data as RpcPlace[]).map((item: RpcPlace) => {
+                const location = parsePoint(item.location_text);
+                if (!location) return null;
+                
+                return {
+                    id: item.id,
+                    created_at: item.created_at,
+                    name: item.name,
+                    location: location,
+                    user_id: item.user_id,
+                };
+            }).filter((p): p is UserDefinedPlace => p !== null);
+            
+            return parsedPlaces;
+        }
+        return [];
+    } catch (err: any) {
+        console.error("ProfileService: Exception in searchUserDefinedPlaces", getDebugMessage(err), err);
+        return []; // Return empty on exception
+    }
+  },
 };

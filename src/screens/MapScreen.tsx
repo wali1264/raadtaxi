@@ -1,21 +1,28 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
-import { AppService, DriverDetails, TripPhase, TripSheetDisplayLevel, DriverSearchState, UserRole, DestinationSuggestion } from '../types'; 
+import { AppService, DriverDetails, TripPhase, TripSheetDisplayLevel, DriverSearchState, UserRole, DestinationSuggestion, UserDefinedPlace } from '../types'; 
 import { debounce, getDistanceFromLatLonInKm, getDebugMessage, getCurrentLocation } from '../utils/helpers';
 import { ServiceSelectionSheet } from '../components/ServiceSelectionSheet';
 import { DriverSearchSheet } from '../components/DriverSearchSheet';
 import { TripInProgressSheet } from '../components/TripInProgressSheet';
 import { CancellationModal } from '../components/CancellationModal';
 import { GeminiSuggestionModal } from '../components/GeminiSuggestionModal';
-import { LocationMarkerIcon, DestinationMarkerIcon, HomeIcon, ProfileIcon, GpsIcon, SearchIcon, BackArrowIcon, ChevronDownIcon, CloseIcon, DriverCarIcon, GeminiSuggestIcon, UserPlaceMarkerIcon } from '../components/icons';
+import { LocationMarkerIcon, DestinationMarkerIcon, HomeIcon, ProfileIcon, GpsIcon, SearchIcon, BackArrowIcon, ChevronDownIcon, CloseIcon, DriverCarIcon, GeminiSuggestIcon, UserPlaceMarkerIcon, StarIcon } from '../components/icons';
 import { AppContext, useAppContext } from '../contexts/AppContext';
 import { tripService, profileService } from '../services';
 import { usePassengerTrip } from '../hooks/usePassengerTrip';
 import { useUserDefinedPlaces } from '../hooks/useUserDefinedPlaces';
+
+interface SearchResult {
+  type: 'saved' | 'nominatim';
+  lat: number;
+  lng: number;
+  name: string;
+  displayName: string;
+}
 
 interface MapScreenProps {
   onNavigateToProfile: () => void;
@@ -80,7 +87,13 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [selectionMode, setSelectionMode] = useState<'origin' | 'destination'>('origin');
   const [confirmedOrigin, setConfirmedOrigin] = useState<{ lat: number; lng: number; address: string } | null>(null);
   const [confirmedDestination, setConfirmedDestination] = useState<{ lat: number; lng: number; address: string } | null>(null);
-  const [address, setAddress] = useState<string>(''); const [searchQuery, setSearchQuery] = useState<string>('');
+  const [address, setAddress] = useState<string>(''); 
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+
   const [isLoadingAddress, setIsLoadingAddress] = useState(true); const [isSearching, setIsSearching] = useState<boolean>(false);
   const [searchError, setSearchError] = useState<string>('');
   const [serviceFor, setServiceFor] = useState<'self' | 'other'>('self');
@@ -104,6 +117,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [isFetchingPois, setIsFetchingPois] = useState(false);
   const poiLayerRef = useRef<L.LayerGroup | null>(null);
   const userPlacesLayerRef = useRef<L.LayerGroup | null>(null);
+  const userPlaceMarkersRef = useRef<L.Marker[]>([]);
 
   const [showSuggestionModal, setShowSuggestionModal] = useState<boolean>(false);
   const [suggestedDestinations, setSuggestedDestinations] = useState<DestinationSuggestion[]>([]);
@@ -125,14 +139,92 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         if (!response.ok) throw new Error('Network response was not ok'); const data = await response.json(); if (data && data.display_name) { setAddress(data.display_name); setSearchQuery(data.display_name); } else { setAddress(t.addressNotFound); setSearchQuery(t.addressNotFound); } } catch (error) { console.error("Error fetching address:", error); setAddress(t.addressError); setSearchQuery(t.addressError); } finally { setIsLoadingAddress(false); }
   }, [currentLang, t.addressLoading, t.addressNotFound, t.addressError, showDriverSearchSheet, showTripInProgressSheet, showSuggestionModal, t]);
 
-  const handleSearch = useCallback(async () => {
-    if (!searchQuery.trim() || !mapInstanceRef.current || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) return; setIsSearching(true); setSearchError(''); const map = mapInstanceRef.current;
-    try { 
-        const bounds = map.getBounds(); const viewbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`; 
-        const fetchOptions: RequestInit = { method: 'GET', mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' };
-        const response = await fetch( `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&countrycodes=af&accept-language=${currentLang}&limit=1&viewbox=${viewbox}&bounded=1`, fetchOptions ); 
-        if (!response.ok) { throw new Error(`Nominatim API error: ${response.statusText}`); } const results = await response.json(); if (results && results.length > 0) { const firstResult = results[0]; const { lat, lon } = firstResult; map.setView([parseFloat(lat), parseFloat(lon)], 16); } else { setSearchError(t.searchNoResults); } } catch (error) { console.error("Error during forward geocoding search:", error); setSearchError(t.searchApiError); } finally { setIsSearching(false); }
-  }, [searchQuery, currentLang, t.searchNoResults, t.searchApiError, showServiceSheet, showDriverSearchSheet, showTripInProgressSheet, showSuggestionModal, t]);
+  const debouncedSearch = useCallback(debounce(async (query: string) => {
+    if (!query.trim()) {
+        setSearchResults([]);
+        return;
+    }
+    
+    setIsSearching(true);
+    setSearchError('');
+
+    try {
+        const savedPlacesPromise = profileService.searchUserDefinedPlaces(query);
+        
+        const map = mapInstanceRef.current;
+        const bounds = map ? map.getBounds() : null;
+        const viewbox = bounds ? `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}` : '';
+        const nominatimPromise = fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=af&accept-language=${currentLang}&limit=5&viewbox=${viewbox}&bounded=1`, { method: 'GET', mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' });
+
+        const [savedPlacesResult, nominatimResponse] = await Promise.all([savedPlacesPromise, nominatimPromise]);
+
+        let nominatimResults: any[] = [];
+        if (nominatimResponse.ok) {
+            nominatimResults = await nominatimResponse.json();
+        } else {
+            console.warn("Nominatim search failed:", nominatimResponse.statusText);
+        }
+        
+        const combinedResults: SearchResult[] = [];
+
+        if (savedPlacesResult) {
+            savedPlacesResult.forEach(place => {
+                combinedResults.push({
+                    type: 'saved',
+                    lat: place.location.lat,
+                    lng: place.location.lng,
+                    name: place.name,
+                    displayName: place.name,
+                });
+            });
+        }
+        
+        if (nominatimResults) {
+            nominatimResults.forEach((result: any) => {
+                if (!combinedResults.some(cr => cr.name.toLowerCase() === result.display_name.split(',')[0].toLowerCase())) {
+                    combinedResults.push({
+                        type: 'nominatim',
+                        lat: parseFloat(result.lat),
+                        lng: parseFloat(result.lon),
+                        name: result.display_name,
+                        displayName: result.display_name,
+                    });
+                }
+            });
+        }
+        
+        setSearchResults(combinedResults);
+        if (combinedResults.length === 0) {
+            setSearchError(t.searchNoResults);
+        }
+
+    } catch (error) {
+        console.error("Error during combined search:", error);
+        setSearchError(t.searchApiError);
+    } finally {
+        setIsSearching(false);
+    }
+}, 400), [currentLang, t.searchNoResults, t.searchApiError]);
+
+  const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const query = e.target.value;
+      setSearchQuery(query);
+      if (searchError) setSearchError('');
+      if (query.trim()) {
+          debouncedSearch(query);
+      } else {
+          setSearchResults([]);
+      }
+  };
+
+  const handleSelectSearchResult = (result: SearchResult) => {
+    if (mapInstanceRef.current) {
+        mapInstanceRef.current.setView([result.lat, result.lng], 16);
+    }
+    setSearchQuery(result.name);
+    setSearchResults([]);
+    setIsSearchFocused(false);
+  };
 
   useEffect(() => { 
     if (mapContainerRef.current && !mapInstanceRef.current) { 
@@ -185,32 +277,77 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   }, [mapInstanceRef.current, showSuggestionModal]); 
 
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    const layer = userPlacesLayerRef.current;
-    if (!map || !layer) return;
+      const map = mapInstanceRef.current;
+      if (!map) return;
 
-    layer.clearLayers();
-    const zoom = map.getZoom();
-    if (zoom >= 14) {
-        userDefinedPlaces.forEach(place => {
-            const iconHTML = ReactDOMServer.renderToString(<UserPlaceMarkerIcon />);
-            const userPlaceIcon = L.divIcon({
-                html: iconHTML,
-                className: 'user-defined-place-icon',
-                iconSize: [24, 24],
-                iconAnchor: [12, 24],
-            });
-            L.marker([place.location.lat, place.location.lng], { icon: userPlaceIcon })
-                .addTo(layer)
-                .bindPopup(`<b>${place.name}</b>`);
-        });
-    }
+      const handleZoomEnd = () => {
+          const zoom = map.getZoom();
+          userPlaceMarkersRef.current.forEach(marker => {
+              if (zoom >= 15) {
+                  marker.openTooltip();
+              } else {
+                  marker.closeTooltip();
+              }
+          });
+      };
+      map.on('zoomend', handleZoomEnd);
+      handleZoomEnd(); // Initial check
+
+      return () => {
+          map.off('zoomend', handleZoomEnd);
+      };
+  }, [mapInstanceRef.current]);
+
+  useEffect(() => {
+      const map = mapInstanceRef.current;
+      const layer = userPlacesLayerRef.current;
+      if (!map || !layer) return;
+
+      layer.clearLayers();
+      userPlaceMarkersRef.current = [];
+
+      userDefinedPlaces.forEach(place => {
+          const iconHTML = ReactDOMServer.renderToString(<UserPlaceMarkerIcon />);
+          const userPlaceIcon = L.divIcon({
+              html: iconHTML,
+              className: 'user-defined-place-icon',
+              iconSize: [24, 38],
+              iconAnchor: [12, 38],
+          });
+
+          const marker = L.marker([place.location.lat, place.location.lng], { icon: userPlaceIcon })
+              .addTo(layer)
+              .bindTooltip(place.name, {
+                  permanent: true,
+                  direction: 'right',
+                  offset: [10, -25], // Adjust to align vertically with the marker's center
+                  className: 'user-place-label'
+              });
+          
+          userPlaceMarkersRef.current.push(marker);
+      });
+
+      // Set initial visibility based on current zoom
+      const currentZoom = map.getZoom();
+      userPlaceMarkersRef.current.forEach(marker => {
+          if (currentZoom < 15) {
+              marker.closeTooltip();
+          }
+      });
   }, [userDefinedPlaces, mapInstanceRef.current]);
+
 
   useEffect(() => { if (mapContainerRef.current) { mapContainerRef.current.style.cursor = isFetchingPois ? 'wait' : 'default'; } }, [isFetchingPois]);
 
   useEffect(() => { const currentDebouncedUpdate = debounce((map: L.Map) => { return updateAddressFromMapCenter(map); }, 750); debouncedUpdateAddressRef.current = currentDebouncedUpdate; const map = mapInstanceRef.current; if (!map) return; if (!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet && !showSuggestionModal) { currentDebouncedUpdate(map).catch(err => console.error("Initial debounced call failed:", err)); } const handleMoveEnd = () => { if (!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet && !showSuggestionModal) { currentDebouncedUpdate(map).catch(err => console.error("Debounced move_end call failed:", err)); } }; map.on('moveend', handleMoveEnd); return () => { map.off('moveend', handleMoveEnd); }; }, [updateAddressFromMapCenter, showServiceSheet, showDriverSearchSheet, showTripInProgressSheet, showSuggestionModal]);
-  useEffect(() => { const handleClickOutside = (event: MouseEvent) => { if (serviceDropdownRef.current && !serviceDropdownRef.current.contains(event.target as Node)) { setIsServiceDropdownOpen(false); } }; document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, []);
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (serviceDropdownRef.current && !serviceDropdownRef.current.contains(event.target as Node)) { setIsServiceDropdownOpen(false); }
+        if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) { setIsSearchFocused(false); }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const map = mapInstanceRef.current; if (!map) return;
@@ -307,6 +444,20 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const handleCloseServiceSheet = () => { setShowServiceSheet(false); if (confirmedDestination && mapInstanceRef.current) { mapInstanceRef.current.setView([confirmedDestination.lat, confirmedDestination.lng]); setAddress(confirmedDestination.address); setSearchQuery(confirmedDestination.address); setSelectionMode('destination'); setIsLoadingAddress(false); setSearchError(''); } };
   const toggleServiceDropdown = () => setIsServiceDropdownOpen(!isServiceDropdownOpen);
   const selectServiceType = (type: 'self' | 'other') => { setServiceFor(type); setIsServiceDropdownOpen(false); if (type === 'self') { setThirdPartyName(''); setThirdPartyPhone(''); setThirdPartyFormError(''); } };
+  
+  const handleSearchFocus = () => {
+    setIsSearchFocused(true);
+    // Clear the search query if it's currently showing a geocoded address,
+    // allowing the user to type a new query without manually deleting.
+    if (
+      searchQuery === address ||
+      searchQuery === t.addressLoading ||
+      searchQuery === t.addressError ||
+      searchQuery === t.addressNotFound
+    ) {
+      setSearchQuery('');
+    }
+  };
 
   const mapScreenContainerStyle: CSSProperties = { width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', backgroundColor: '#e0e0e0' };
   const leafletMapContainerStyle: CSSProperties = { width: '100%', height: '100%' };
@@ -326,13 +477,17 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const gpsButtonVisibilityLogic = (showServiceSheet || showDriverSearchSheet || showSuggestionModal || (showTripInProgressSheet && tripSheetDisplayLevel === 'full')) ? 'hidden' : 'visible';
   const gpsButtonStyle: CSSProperties = { position: 'absolute', bottom: getGpsButtonBottom(), [isRTL ? 'right' : 'left']: '1rem', backgroundColor: 'white', borderRadius: '50%', width: '3.25rem', height: '3.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', cursor: 'pointer', zIndex: 1000, border: 'none', transition: 'bottom 0.3s ease-out, visibility 0.3s ease-out', visibility: gpsButtonVisibilityLogic, };
   const bottomPanelStyle: CSSProperties = { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'white', padding: '1rem 1.5rem 1.5rem', borderTopLeftRadius: '1rem', borderTopRightRadius: '1rem', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)', zIndex: 1000, display: 'flex', flexDirection: 'column', transform: (showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) ? 'translateY(100%)' : 'translateY(0)', visibility: (showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) ? 'hidden' : 'visible', transition: 'transform 0.3s ease-out, visibility 0.3s ease-out' };
-  const addressInputContainerStyle: CSSProperties = { display: 'flex', alignItems: 'center', backgroundColor: '#f0f0f0', borderRadius: '0.5rem', padding: isRTL ? '0.75rem 1rem 0.75rem 0.5rem' : '0.75rem 0.5rem 0.75rem 1rem', marginBottom: '0.5rem' };
+  const searchSectionStyle: CSSProperties = { position: 'relative' };
+  const addressInputContainerStyle: CSSProperties = { display: 'flex', alignItems: 'center', backgroundColor: '#f0f0f0', borderRadius: '0.5rem', padding: isRTL ? '0.75rem 1rem 0.75rem 0.5rem' : '0.75rem 0.5rem 0.75rem 1rem' };
   const addressPointStyle: CSSProperties = { width: '10px', height: '10px', backgroundColor: selectionMode === 'origin' ? '#007bff' : '#28a745', borderRadius: selectionMode === 'origin' ? '50%' : '2px', [isRTL ? 'marginLeft' : 'marginRight']: '0.75rem', flexShrink: 0 };
   const addressInputStyle: CSSProperties = { flexGrow: 1, fontSize: '0.9rem', color: '#333', textAlign: isRTL ? 'right' : 'left', backgroundColor: 'transparent', border: 'none', outline: 'none', padding: '0 0.5rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', };
-  const searchButtonStyle: CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', flexShrink: 0, [isRTL ? 'marginRight' : 'marginLeft'] : '0.5rem' }; const searchButtonDisabledStyle: CSSProperties = { opacity: 0.5, cursor: 'not-allowed' };
-  const searchErrorStyle: CSSProperties = { fontSize: '0.75rem', color: 'red', textAlign: 'center', minHeight: '1.2em', marginBottom: '0.5rem' };
+  const searchResultsContainerStyle: CSSProperties = { position: 'absolute', bottom: 'calc(100% - 0.5rem)', left: 0, right: 0, backgroundColor: 'white', borderRadius: '0.5rem', boxShadow: '0 -4px 12px rgba(0,0,0,0.1)', zIndex: 1001, maxHeight: '250px', overflowY: 'auto', border: '1px solid #e0e0e0' };
+  const searchResultItemStyle: CSSProperties = { padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', gap: '0.75rem' };
+  const searchResultItemHoverStyle: CSSProperties = { backgroundColor: '#f8f9fa' };
+  const searchResultTextStyle: CSSProperties = { fontSize: '0.9rem', color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+  const searchErrorStyle: CSSProperties = { fontSize: '0.75rem', color: 'red', textAlign: 'center', minHeight: '1.2em', margin: '0.5rem 0' };
   const verificationWarningStyle: CSSProperties = { fontSize: '0.8rem', color: '#D97706', textAlign: 'center', marginBottom: '0.5rem', backgroundColor: 'rgba(251, 191, 36, 0.1)', padding: '0.4rem', borderRadius: '0.25rem', };
-  const confirmMainButtonStyle: CSSProperties = { width: '100%', backgroundColor: selectionMode === 'destination' ? '#28a745' : '#007bff', color: 'white', border: 'none', padding: '0.875rem', borderRadius: '0.5rem', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', transition: 'background-color 0.2s' };
+  const confirmMainButtonStyle: CSSProperties = { width: '100%', backgroundColor: selectionMode === 'destination' ? '#28a745' : '#007bff', color: 'white', border: 'none', padding: '0.875rem', borderRadius: '0.5rem', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', transition: 'background-color 0.2s', marginTop: '0.5rem' };
   const confirmMainButtonHoverStyle: CSSProperties = { backgroundColor: selectionMode === 'destination' ? '#218838' : '#0056b3' };
   const isThirdPartyFormInvalid = serviceFor === 'other' && (!thirdPartyName.trim() || !/^07[0-9]{8}$/.test(thirdPartyPhone));
   const confirmMainButtonDisabledStyle: CSSProperties = { backgroundColor: '#a5d6a7', cursor: 'not-allowed' };
@@ -368,10 +523,35 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
                 <input type="tel" placeholder={t.passengerPhoneLabel} value={thirdPartyPhone} onChange={(e) => { const value = e.target.value.replace(/[^0-9]/g, ''); setThirdPartyPhone(value); if (thirdPartyFormError) setThirdPartyFormError(''); }} style={{...addressInputStyle, width: '100%', boxSizing: 'border-box', backgroundColor: '#fff', border: '1px solid #ddd', padding: '0.75rem'}} maxLength={10} dir="ltr" />
             </div>
         )}
-        <div style={addressInputContainerStyle}> <div style={addressPointStyle} /> <input type="text" style={addressInputStyle} value={isLoadingAddress ? t.addressLoading : (isSearching ? t.searchingAddress : searchQuery)} onChange={(e) => { setSearchQuery(e.target.value); if (searchError) setSearchError(''); }} onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }} placeholder={selectionMode === 'origin' ? t.searchPlaceholderOrigin : t.searchPlaceholderDestination} readOnly={isLoadingAddress || isSearching} aria-label={t.searchAddressLabel} dir={isRTL ? 'rtl': 'ltr'} /> <button onClick={handleSearch} style={ (isSearching || isLoadingAddress || !searchQuery.trim()) ? {...searchButtonStyle, ...searchButtonDisabledStyle} : searchButtonStyle } disabled={isSearching || isLoadingAddress || !searchQuery.trim()} aria-label={t.searchIconAriaLabel} > <SearchIcon /> </button> </div>
+        <div style={searchSectionStyle} ref={searchContainerRef}>
+          <div style={addressInputContainerStyle}> 
+              <div style={addressPointStyle} /> 
+              <input type="text" style={addressInputStyle} value={isLoadingAddress ? t.addressLoading : (isSearching ? t.searchingAddress : searchQuery)} onChange={handleSearchInputChange} onFocus={handleSearchFocus} placeholder={selectionMode === 'origin' ? t.searchPlaceholderOrigin : t.searchPlaceholderDestination} readOnly={isLoadingAddress} aria-label={t.searchAddressLabel} dir={isRTL ? 'rtl': 'ltr'} /> 
+              <button style={ { background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', flexShrink: 0 } } disabled={isSearching || isLoadingAddress} > 
+                {isSearching ? <div style={{width:'1rem', height:'1rem', border:'2px solid #ccc', borderTopColor:'#555', borderRadius:'50%', animation:'spin 1s linear infinite'}}></div> : <SearchIcon />} 
+              </button> 
+          </div>
+          {isSearchFocused && searchResults.length > 0 && (
+            <div style={searchResultsContainerStyle}>
+                {searchResults.map((result, index) => (
+                    <div 
+                        key={`${result.type}-${index}`} 
+                        style={searchResultItemStyle} 
+                        onClick={() => handleSelectSearchResult(result)}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = searchResultItemHoverStyle.backgroundColor!}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''}
+                    >
+                        {result.type === 'saved' && <StarIcon filled={true} style={{width: '1rem', height: '1rem', color: '#F59E0B', flexShrink:0}} />}
+                        {result.type === 'nominatim' && <LocationMarkerIcon color="#718096" style={{width: '1rem', height: '1rem', flexShrink:0}} />}
+                        <span style={searchResultTextStyle} title={result.displayName}>{result.displayName}</span>
+                    </div>
+                ))}
+            </div>
+          )}
+        </div>
         {searchError || thirdPartyFormError ? <p style={searchErrorStyle} role="alert">{searchError || thirdPartyFormError}</p> : <div style={{...searchErrorStyle, visibility: 'hidden'}}>Placeholder</div> }
         {!isUserVerified && <p style={verificationWarningStyle}>{t.accountNotVerifiedWarning}</p>}
-        <button style={currentConfirmMainButtonStyle} onMouseEnter={() => setIsConfirmMainButtonHovered(true)} onMouseLeave={() => setIsConfirmMainButtonHovered(false)} onClick={handleConfirmOriginOrDestination} disabled={isLoadingAddress || isSearching || !address || isThirdPartyFormInvalid || !isUserVerified} > {selectionMode === 'origin' ? t.confirmOriginButton : t.confirmDestinationButton} </button>
+        <button style={currentConfirmMainButtonStyle} onMouseEnter={() => setIsConfirmMainButtonHovered(true)} onMouseLeave={() => setIsConfirmMainButtonHovered(false)} onClick={handleConfirmOriginOrDestination} disabled={isLoadingAddress || isSearching || !address || isThirdPartyFormInvalid || !isUserVerified || searchResults.length > 0} > {selectionMode === 'origin' ? t.confirmOriginButton : t.confirmDestinationButton} </button>
       </div>
       {showServiceSheet && confirmedOrigin && confirmedDestination && ( <ServiceSelectionSheet currentLang={currentLang} originAddress={confirmedOrigin.address} destinationAddress={confirmedDestination.address} routeDistanceKm={routeDistanceKm} isCalculatingDistance={isCalculatingDistance} distanceError={distanceError} onClose={handleCloseServiceSheet} onRequestRide={handleRequestRideFromSheet} serviceCategories={appServiceCategories} isLoadingServices={isLoadingServicesGlobal} serviceFetchError={serviceFetchErrorGlobal} /> )}
       {showDriverSearchSheet && tripActions.getSelectedService() && ( <DriverSearchSheet currentLang={currentLang} searchState={driverSearchState} notifiedDriverCount={notifiedDriverCount} onRetry={tripActions.retryRideRequest} onCancel={resetToInitialMapState} onClose={resetToInitialMapState} selectedServiceName={t[tripActions.getSelectedService()!.nameKey] || tripActions.getSelectedService()!.id} /> )}

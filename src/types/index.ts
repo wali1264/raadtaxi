@@ -1,4 +1,3 @@
-
 import React, { CSSProperties } from 'react';
 import { translations, TranslationSet } from '../translations';
 
@@ -78,7 +77,6 @@ export interface RideRequest {
   route_to_destination_polyline?: string | null;
   actual_fare?: number | null;
   updated_at?: string | null; // Added to match Supabase auto-updates and for general use
-  actual_trip_polyline?: string | null;
 }
 
 export interface DriverDetails {
