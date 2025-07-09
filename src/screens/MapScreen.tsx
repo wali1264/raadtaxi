@@ -89,6 +89,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [confirmedDestination, setConfirmedDestination] = useState<{ lat: number; lng: number; address: string } | null>(null);
   const [address, setAddress] = useState<string>(''); 
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [userInput, setUserInput] = useState<string>('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -139,7 +140,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         if (!response.ok) throw new Error('Network response was not ok'); const data = await response.json(); if (data && data.display_name) { setAddress(data.display_name); setSearchQuery(data.display_name); } else { setAddress(t.addressNotFound); setSearchQuery(t.addressNotFound); } } catch (error) { console.error("Error fetching address:", error); setAddress(t.addressError); setSearchQuery(t.addressError); } finally { setIsLoadingAddress(false); }
   }, [currentLang, t.addressLoading, t.addressNotFound, t.addressError, showDriverSearchSheet, showTripInProgressSheet, showSuggestionModal, t]);
 
-  const debouncedSearch = useCallback(debounce(async (query: string) => {
+  const handleManualSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
         setSearchResults([]);
         return;
@@ -147,6 +148,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     
     setIsSearching(true);
     setSearchError('');
+    setSearchResults([]);
 
     try {
         const savedPlacesPromise = profileService.searchUserDefinedPlaces(query);
@@ -204,24 +206,20 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     } finally {
         setIsSearching(false);
     }
-}, 400), [currentLang, t.searchNoResults, t.searchApiError]);
+}, [currentLang, t.searchNoResults, t.searchApiError]);
 
   const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const query = e.target.value;
-      setSearchQuery(query);
+      setUserInput(query);
       if (searchError) setSearchError('');
-      if (query.trim()) {
-          debouncedSearch(query);
-      } else {
-          setSearchResults([]);
-      }
+      if (searchResults.length > 0) setSearchResults([]);
   };
 
   const handleSelectSearchResult = (result: SearchResult) => {
     if (mapInstanceRef.current) {
         mapInstanceRef.current.setView([result.lat, result.lng], 16);
     }
-    setSearchQuery(result.name);
+    setUserInput(result.name);
     setSearchResults([]);
     setIsSearchFocused(false);
   };
@@ -340,10 +338,20 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   useEffect(() => { if (mapContainerRef.current) { mapContainerRef.current.style.cursor = isFetchingPois ? 'wait' : 'default'; } }, [isFetchingPois]);
 
   useEffect(() => { const currentDebouncedUpdate = debounce((map: L.Map) => { return updateAddressFromMapCenter(map); }, 750); debouncedUpdateAddressRef.current = currentDebouncedUpdate; const map = mapInstanceRef.current; if (!map) return; if (!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet && !showSuggestionModal) { currentDebouncedUpdate(map).catch(err => console.error("Initial debounced call failed:", err)); } const handleMoveEnd = () => { if (!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet && !showSuggestionModal) { currentDebouncedUpdate(map).catch(err => console.error("Debounced move_end call failed:", err)); } }; map.on('moveend', handleMoveEnd); return () => { map.off('moveend', handleMoveEnd); }; }, [updateAddressFromMapCenter, showServiceSheet, showDriverSearchSheet, showTripInProgressSheet, showSuggestionModal]);
+  
+  useEffect(() => {
+    if (!isSearchFocused) {
+      setUserInput(searchQuery);
+    }
+  }, [searchQuery, isSearchFocused]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
         if (serviceDropdownRef.current && !serviceDropdownRef.current.contains(event.target as Node)) { setIsServiceDropdownOpen(false); }
-        if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) { setIsSearchFocused(false); }
+        if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+          setIsSearchFocused(false); 
+          setSearchResults([]);
+        }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -420,7 +428,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   
   const handleConfirmOriginOrDestination = () => { if (isLoadingAddress || isSearching || !mapInstanceRef.current || !address || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) return; const currentMap = mapInstanceRef.current; const center = currentMap.getCenter(); const currentValidAddress = address; 
   if (serviceFor === 'other') { if (!thirdPartyName.trim()) { setThirdPartyFormError(t.fullNameLabel + ' ' + (isRTL ? 'الزامی است' : 'is required')); return; } if (!/^07[0-9]{8}$/.test(thirdPartyPhone)) { setThirdPartyFormError(t.invalidPhoneError); return; } setThirdPartyFormError(''); }
-  if (selectionMode === 'origin') { setConfirmedOrigin({ lat: center.lat, lng: center.lng, address: currentValidAddress }); setSelectionMode('destination'); setSearchQuery(''); setAddress(''); setSearchError(''); if (debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(currentMap).catch(err => console.error("Update address for dest failed:", err)); } } else { const destDetails = { lat: center.lat, lng: center.lng, address: currentValidAddress }; setConfirmedDestination(destDetails); if(confirmedOrigin) { calculateRouteDistance( {lat: confirmedOrigin.lat, lng: confirmedOrigin.lng}, {lat: destDetails.lat, lng: destDetails.lng} ).finally(() => { setShowServiceSheet(true); }); } else { setDistanceError("Origin not confirmed."); setShowServiceSheet(true); } } };
+  if (selectionMode === 'origin') { setConfirmedOrigin({ lat: center.lat, lng: center.lng, address: currentValidAddress }); setSelectionMode('destination'); setSearchQuery(''); setUserInput(''); setAddress(''); setSearchError(''); if (debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(currentMap).catch(err => console.error("Update address for dest failed:", err)); } } else { const destDetails = { lat: center.lat, lng: center.lng, address: currentValidAddress }; setConfirmedDestination(destDetails); if(confirmedOrigin) { calculateRouteDistance( {lat: confirmedOrigin.lat, lng: confirmedOrigin.lng}, {lat: destDetails.lat, lng: destDetails.lng} ).finally(() => { setShowServiceSheet(true); }); } else { setDistanceError("Origin not confirmed."); setShowServiceSheet(true); } } };
 
   useEffect(() => {
     if (loggedInUserId && allAppServices.length > 0) {
@@ -432,7 +440,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   
   const resetToInitialMapState = () => {
     tripActions.resetTripState();
-    setShowServiceSheet(false); setSelectionMode('origin'); setConfirmedOrigin(null); setConfirmedDestination(null); setSearchQuery(''); setAddress(''); setRouteDistanceKm(null); setIsCalculatingDistance(false); setDistanceError(null);
+    setShowServiceSheet(false); setSelectionMode('origin'); setConfirmedOrigin(null); setConfirmedDestination(null); setSearchQuery(''); setUserInput(''); setAddress(''); setRouteDistanceKm(null); setIsCalculatingDistance(false); setDistanceError(null);
     if (mapInstanceRef.current && debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(mapInstanceRef.current) .catch(err => console.error("Update address for new origin failed:", err)); }
   };
   
@@ -447,15 +455,13 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   
   const handleSearchFocus = () => {
     setIsSearchFocused(true);
-    // Clear the search query if it's currently showing a geocoded address,
-    // allowing the user to type a new query without manually deleting.
     if (
-      searchQuery === address ||
-      searchQuery === t.addressLoading ||
-      searchQuery === t.addressError ||
-      searchQuery === t.addressNotFound
+      userInput === address ||
+      userInput === t.addressLoading ||
+      userInput === t.addressError ||
+      userInput === t.addressNotFound
     ) {
-      setSearchQuery('');
+      setUserInput('');
     }
   };
 
@@ -526,12 +532,12 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         <div style={searchSectionStyle} ref={searchContainerRef}>
           <div style={addressInputContainerStyle}> 
               <div style={addressPointStyle} /> 
-              <input type="text" style={addressInputStyle} value={isLoadingAddress ? t.addressLoading : (isSearching ? t.searchingAddress : searchQuery)} onChange={handleSearchInputChange} onFocus={handleSearchFocus} placeholder={selectionMode === 'origin' ? t.searchPlaceholderOrigin : t.searchPlaceholderDestination} readOnly={isLoadingAddress} aria-label={t.searchAddressLabel} dir={isRTL ? 'rtl': 'ltr'} /> 
-              <button style={ { background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', flexShrink: 0 } } disabled={isSearching || isLoadingAddress} > 
+              <input type="text" style={addressInputStyle} value={isSearchFocused ? userInput : (isLoadingAddress ? t.addressLoading : searchQuery)} onChange={handleSearchInputChange} onFocus={handleSearchFocus} placeholder={selectionMode === 'origin' ? t.searchPlaceholderOrigin : t.searchPlaceholderDestination} readOnly={isLoadingAddress} aria-label={t.searchAddressLabel} dir={isRTL ? 'rtl': 'ltr'} /> 
+              <button style={ { background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', flexShrink: 0 } } onClick={() => handleManualSearch(userInput)} disabled={isSearching || isLoadingAddress} > 
                 {isSearching ? <div style={{width:'1rem', height:'1rem', border:'2px solid #ccc', borderTopColor:'#555', borderRadius:'50%', animation:'spin 1s linear infinite'}}></div> : <SearchIcon />} 
               </button> 
           </div>
-          {isSearchFocused && searchResults.length > 0 && (
+          {searchResults.length > 0 && (
             <div style={searchResultsContainerStyle}>
                 {searchResults.map((result, index) => (
                     <div 

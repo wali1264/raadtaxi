@@ -4,7 +4,7 @@ const urlsToCache = [
   '/index.html',
   '/bundle.js',
   '/manifest.json',
-  '/assets/icons/icon.svg',
+  '/assets/ra-ad-logo.png',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
 ];
 

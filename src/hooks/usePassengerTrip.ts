@@ -49,26 +49,47 @@ export const usePassengerTrip = () => {
     const handleDriverAssigned = useCallback(async (updatedRequest) => {
         clearPassengerRequestTimeout();
         if (!updatedRequest.driver_id) return;
-        
+
         try {
-            const driverProfile = await profileService.fetchDriverProfile(updatedRequest.driver_id);
+            // Fetch user details (name, phone, pic) using the secure RPC function
+            const userDetails = await profileService.fetchUserDetailsById(updatedRequest.driver_id);
+
+            // Fetch vehicle details directly, assuming RLS allows this for an active trip
+            const { data: vehicleData, error: vehicleError } = await supabase
+                .from('drivers_profile')
+                .select('vehicle_model, vehicle_color, plate_region, plate_numbers, plate_type_char')
+                .eq('user_id', updatedRequest.driver_id)
+                .single();
+                
+            if (vehicleError) {
+                // Log the error but don't block the UI from showing what we have
+                console.error("Error fetching driver vehicle details:", getDebugMessage(vehicleError));
+            }
+
+            // Combine the results into a single object for the UI
             const assignedDriverDetails: DriverDetails = {
-                name: driverProfile.fullName || `${t.roleDriver} ${updatedRequest.driver_id.substring(0, 6)}`,
+                name: userDetails?.fullName || `${t.roleDriver} ${updatedRequest.driver_id.substring(0, 6)}`,
                 serviceId: selectedService?.id || 'car',
-                vehicleModel: driverProfile.vehicleModel || t.dataMissing,
-                vehicleColor: driverProfile.vehicleColor || t.dataMissing,
-                plateParts: { region: driverProfile.plateRegion || "N/A", numbers: driverProfile.plateNumbers || t.dataMissing, type: driverProfile.plateTypeChar || "-" },
-                profilePicUrl: driverProfile.profilePicUrl,
+                phoneNumber: userDetails?.phoneNumber || t.dataMissing,
+                profilePicUrl: userDetails?.profilePicUrl,
                 driverId: updatedRequest.driver_id,
-                phoneNumber: driverProfile.phoneNumber || t.dataMissing,
+                vehicleModel: vehicleData?.vehicle_model || t.dataMissing,
+                vehicleColor: vehicleData?.vehicle_color || t.dataMissing,
+                plateParts: { 
+                    region: vehicleData?.plate_region || "N/A", 
+                    numbers: vehicleData?.plate_numbers || t.dataMissing, 
+                    type: vehicleData?.plate_type_char || "-" 
+                },
             };
             setCurrentDriverDetails(assignedDriverDetails);
+
         } catch (error) {
+            // This will catch errors from fetchUserDetailsById if the RPC fails
             console.error("Error fetching full driver details:", getDebugMessage(error));
             const fallbackDetails: DriverDetails = { name: t.roleDriver, serviceId: 'car', vehicleModel: t.dataMissing, vehicleColor: t.dataMissing, plateParts: { region: 'N/A', numbers: t.dataMissing, type: '-' }, driverId: updatedRequest.driver_id, phoneNumber: t.dataMissing };
             setCurrentDriverDetails(fallbackDetails);
         }
-
+        
         setDriverSearchState('driverAssigned');
         setShowDriverSearchSheet(false);
         setShowTripInProgressSheet(true);

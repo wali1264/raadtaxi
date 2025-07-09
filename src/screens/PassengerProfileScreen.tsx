@@ -45,13 +45,14 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
         setSelectedImageFile(null);
         setImagePreviewUrl(null);
         try {
-          const fetchedData = await profileService.fetchUserDetailsById(loggedInUserId);
+          // Use fetchUserSessionData for fetching own profile
+          const fetchedData = await profileService.fetchUserSessionData(loggedInUserId);
           if (fetchedData) {
             const data = {
-                userId: fetchedData.id,
+                userId: fetchedData.userId,
                 fullName: fetchedData.fullName || '',
                 phoneNumber: fetchedData.phoneNumber || '',
-                profilePicUrl: fetchedData.profilePicUrl || '',
+                profilePicUrl: (await profileService.fetchUserDetailsById(loggedInUserId))?.profilePicUrl || '',
             };
             setProfileData(data);
             setInitialProfileData(data);
