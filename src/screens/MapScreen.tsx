@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -95,7 +94,6 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  const selectedService = tripActions.getSelectedService();
 
   const [isLoadingAddress, setIsLoadingAddress] = useState(true); const [isSearching, setIsSearching] = useState<boolean>(false);
   const [searchError, setSearchError] = useState<string>('');
@@ -107,17 +105,15 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
 
   const [showServiceSheet, setShowServiceSheet] = useState<boolean>(false);
   const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
-  const [routeCoordinates, setRouteCoordinates] = useState<L.LatLngExpression[] | null>(null);
   const [isCalculatingDistance, setIsCalculatingDistance] = useState<boolean>(false);
   const [distanceError, setDistanceError] = useState<string | null>(null);
-  const routeLayerRef = useRef<L.LayerGroup | null>(null);
 
   const [originMapMarker, setOriginMapMarker] = useState<L.Marker | null>(null);
   const [destinationMapMarker, setDestinationMapMarker] = useState<L.Marker | null>(null);
   const driverMarkerRef = useRef<L.Marker | null>(null);
   const driverLocationChannelRef = useRef<RealtimeChannel | null>(null);
   
-  const debouncedUpdateAddressRef = useRef<((map: L.Map) => Promise<void>) | null>(null);
+  const debouncedUpdateAddressRef = useRef<((map: L.Map) => Promise<void>) | undefined>(undefined);
   
   const [isFetchingPois, setIsFetchingPois] = useState(false);
   const poiLayerRef = useRef<L.LayerGroup | null>(null);
@@ -129,15 +125,11 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [currentUserLocation, setCurrentUserLocation] = useState<{lat: number, lng: number} | null>(null);
   const suggestionMarkersLayerRef = useRef<L.LayerGroup | null>(null);
 
-  const showNotImplemented = useCallback(() => {
-    alert(isRTL ? 'این قابلیت هنوز پیاده‌سازی نشده است.' : 'This feature is not yet implemented.');
-  }, [isRTL]);
 
   const updateAddressFromMapCenter = useCallback(async (map: L.Map) => {
     if (showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) return; 
     setIsLoadingAddress(true); 
     setSearchQuery(t.addressLoading); 
-    setAddress(t.addressLoading);
     setSearchError(''); 
     const center = map.getCenter();
     setCurrentUserLocation({ lat: center.lat, lng: center.lng });
@@ -145,12 +137,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     try { 
         const fetchOptions: RequestInit = { method: 'GET', mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' };
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${center.lat}&lon=${center.lng}&accept-language=${currentLang}&zoom=18`, fetchOptions);
-        if (!response.ok) throw new Error('Network response was not ok'); const data = await response.json(); if (data && data.display_name) { setAddress(data.display_name); setSearchQuery(data.display_name); setUserInput(data.display_name); } else { setAddress(t.addressNotFound); setSearchQuery(t.addressNotFound); setUserInput(t.addressNotFound); } } catch (error) { console.error("Error fetching address:", error); setAddress(t.addressError); setSearchQuery(t.addressError); setUserInput(t.addressError); } finally { setIsLoadingAddress(false); }
-  }, [currentLang, t.addressLoading, t.addressNotFound, t.addressError, showDriverSearchSheet, showTripInProgressSheet, showSuggestionModal]);
-  
-  useEffect(() => {
-    debouncedUpdateAddressRef.current = debounce(updateAddressFromMapCenter, 500);
-  }, [updateAddressFromMapCenter]);
+        if (!response.ok) throw new Error('Network response was not ok'); const data = await response.json(); if (data && data.display_name) { setAddress(data.display_name); setSearchQuery(data.display_name); } else { setAddress(t.addressNotFound); setSearchQuery(t.addressNotFound); } } catch (error) { console.error("Error fetching address:", error); setAddress(t.addressError); setSearchQuery(t.addressError); } finally { setIsLoadingAddress(false); }
+  }, [currentLang, t.addressLoading, t.addressNotFound, t.addressError, showDriverSearchSheet, showTripInProgressSheet, showSuggestionModal, t]);
 
   const handleManualSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -200,7 +188,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
                         type: 'nominatim',
                         lat: parseFloat(result.lat),
                         lng: parseFloat(result.lon),
-                        name: result.display_name.split(',')[0],
+                        name: result.display_name,
                         displayName: result.display_name,
                     });
                 }
@@ -225,137 +213,21 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
       setUserInput(query);
       if (searchError) setSearchError('');
       if (searchResults.length > 0) setSearchResults([]);
-      if (query.length > 2) {
-          handleManualSearch(query);
-      }
   };
 
   const handleSelectSearchResult = (result: SearchResult) => {
     if (mapInstanceRef.current) {
         mapInstanceRef.current.setView([result.lat, result.lng], 16);
     }
-    setUserInput(result.displayName);
+    setUserInput(result.name);
     setSearchResults([]);
     setIsSearchFocused(false);
-    document.getElementById('address-search-input')?.blur();
   };
-  
-  const handleConfirmOrigin = () => {
-    const map = mapInstanceRef.current;
-    if (!map) return;
-    const center = map.getCenter();
-    const newOrigin = { lat: center.lat, lng: center.lng, address: address };
-    setConfirmedOrigin(newOrigin);
-
-    if (originMapMarker) map.removeLayer(originMapMarker);
-    const originIconHTML = ReactDOMServer.renderToString(<LocationMarkerIcon color="#34A853" />);
-    const newMarker = L.marker([newOrigin.lat, newOrigin.lng], {
-      icon: L.divIcon({ html: originIconHTML, className: 'origin-map-marker', iconSize: [40, 56], iconAnchor: [20, 56] }),
-      zIndexOffset: 100
-    }).addTo(map);
-    setOriginMapMarker(newMarker);
-    setSelectionMode('destination');
-    setSearchQuery(t.addressLoading);
-    setUserInput('');
-  };
-  
-  const handleConfirmDestination = async () => {
-    if (!confirmedOrigin || !mapInstanceRef.current) return;
-
-    const center = mapInstanceRef.current.getCenter();
-    const currentDestination = { lat: center.lat, lng: center.lng, address: address };
-    setConfirmedDestination(currentDestination);
-
-    if (destinationMapMarker) mapInstanceRef.current.removeLayer(destinationMapMarker);
-    const destIconHTML = ReactDOMServer.renderToString(<DestinationMarkerIcon color="#EA4335" />);
-    const newMarker = L.marker([currentDestination.lat, currentDestination.lng], {
-      icon: L.divIcon({ html: destIconHTML, className: 'destination-map-marker', iconSize: [40, 56], iconAnchor: [20, 56] }),
-      zIndexOffset: 99
-    }).addTo(mapInstanceRef.current);
-    setDestinationMapMarker(newMarker);
-
-    if (fixedMarkerRef.current) {
-        fixedMarkerRef.current.style.display = 'none';
-    }
-
-    setShowServiceSheet(true);
-    setIsCalculatingDistance(true);
-    setDistanceError(null);
-    setRouteCoordinates(null);
-    setRouteDistanceKm(null);
-
-    try {
-        const startCoords: [number, number] = [confirmedOrigin.lat, confirmedOrigin.lng];
-        const endCoords: [number, number] = [currentDestination.lat, currentDestination.lng];
-        
-        const fetchOptions: RequestInit = { method: 'GET', mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' };
-        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${startCoords[1]},${startCoords[0]};${endCoords[1]},${endCoords[0]}?overview=full&geometries=geojson`, fetchOptions);
-
-        if (!response.ok) throw new Error('Failed to fetch route from OSRM');
-        
-        const data = await response.json();
-        if (data.routes && data.routes.length > 0) {
-            const route = data.routes[0];
-            const coordinates = route.geometry.coordinates.map((coord: number[]) => [coord[1], coord[0]]);
-            const distanceMeters = route.distance;
-
-            setRouteCoordinates(coordinates as L.LatLngExpression[]);
-            setRouteDistanceKm(distanceMeters / 1000);
-        } else {
-            throw new Error('No route found in OSRM response');
-        }
-    } catch (err) {
-        console.error("Error calculating route:", getDebugMessage(err as Error));
-        setDistanceError(t.priceCalculationError);
-    } finally {
-        setIsCalculatingDistance(false);
-    }
-  };
-  
-    const handleCloseServiceSheet = () => {
-        setShowServiceSheet(false);
-        setRouteCoordinates(null);
-        setRouteDistanceKm(null);
-        setDistanceError(null);
-        if(routeLayerRef.current) {
-            routeLayerRef.current.clearLayers();
-        }
-        if(fixedMarkerRef.current) {
-            fixedMarkerRef.current.style.display = 'block';
-        }
-    };
-    
-  const handleRequestRide = (service: AppService, originAddress: string, destinationAddress: string, estimatedPrice: number | null) => {
-    if (confirmedOrigin && confirmedDestination) {
-        tripActions.startRideRequest(
-            service,
-            {...confirmedOrigin, address: originAddress},
-            {...confirmedDestination, address: destinationAddress},
-            estimatedPrice,
-            serviceFor,
-            thirdPartyName,
-            thirdPartyPhone
-        );
-        setShowServiceSheet(false);
-        if (fixedMarkerRef.current) {
-            fixedMarkerRef.current.style.display = 'block';
-        }
-        if (originMapMarker && mapInstanceRef.current) mapInstanceRef.current.removeLayer(originMapMarker);
-        if (destinationMapMarker && mapInstanceRef.current) mapInstanceRef.current.removeLayer(destinationMapMarker);
-        if (routeLayerRef.current) routeLayerRef.current.clearLayers();
-        
-        setConfirmedOrigin(null);
-        setConfirmedDestination(null);
-        setRouteCoordinates(null);
-        setSelectionMode('origin');
-    }
-  };
-
 
   useEffect(() => { 
     if (mapContainerRef.current && !mapInstanceRef.current) { 
-        const initialView: L.LatLngExpression = [34.34, 62.20]; 
-        const newMap = L.map(mapContainerRef.current, { center: initialView, zoom: 14, zoomControl: false, attributionControl: true, }); 
+        const initialView: L.LatLngExpression = [32.3745, 62.1164]; 
+        const newMap = L.map(mapContainerRef.current, { center: initialView, zoom: 13, zoomControl: false, attributionControl: true, }); 
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
             maxZoom: 20,
@@ -363,176 +235,335 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         mapInstanceRef.current = newMap; 
         setSearchQuery(t.addressLoading); 
 
-        const handleMove = () => {
-            if(debouncedUpdateAddressRef.current) {
-                debouncedUpdateAddressRef.current(newMap);
-            }
-        };
-        newMap.on('moveend', handleMove);
-        
-        getCurrentLocation()
-            .then(position => {
-                const userLatLng: L.LatLngExpression = [position.coords.latitude, position.coords.longitude];
-                newMap.setView(userLatLng, 16);
-            })
-            .catch(err => {
-                console.warn("Could not get initial location:", getDebugMessage(err));
-            })
-            .finally(() => {
-                updateAddressFromMapCenter(newMap);
-            });
-
-        if (!routeLayerRef.current) { routeLayerRef.current = L.layerGroup().addTo(newMap); }
         if (!poiLayerRef.current) { poiLayerRef.current = L.layerGroup().addTo(newMap); }
         if (!userPlacesLayerRef.current) { userPlacesLayerRef.current = L.layerGroup().addTo(newMap); }
         if (!suggestionMarkersLayerRef.current) { suggestionMarkersLayerRef.current = L.layerGroup().addTo(newMap); }
     } 
-    return () => { if(mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; }}; 
-  }, [t.addressLoading, updateAddressFromMapCenter]);
-  
-  useEffect(() => {
-    if (tripActions.recoverTrip) tripActions.recoverTrip();
-  }, [tripActions.recoverTrip]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
-        setIsSearchFocused(false);
-        setSearchResults([]);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
+    return () => { mapInstanceRef.current?.remove(); mapInstanceRef.current = null; }; 
+  }, [t.addressLoading]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
-    const routeLayer = routeLayerRef.current;
+    if (!map) return;
 
-    if (!map || !routeLayer) return;
-
-    routeLayer.clearLayers();
-
-    if (routeCoordinates && routeCoordinates.length > 0 && showServiceSheet) {
-        const polyline = L.polyline(routeCoordinates, { color: '#007BFF', weight: 5, opacity: 0.8 }).addTo(routeLayer);
+    const fetchAndDisplayPois = async () => {
+        if (showSuggestionModal) { poiLayerRef.current?.clearLayers(); return; }
+        const mapBounds = map.getBounds(); const zoom = map.getZoom();
+        if (zoom < 15) { poiLayerRef.current?.clearLayers(); return; }
+        setIsFetchingPois(true);
+        const boundsStr = `${mapBounds.getSouth()},${mapBounds.getWest()},${mapBounds.getNorth()},${mapBounds.getEast()}`;
+        const poiQuery = `[out:json][timeout:25];(node["amenity"~"restaurant|cafe|pharmacy|place_of_worship|fast_food"](${boundsStr});node["shop"~"supermarket|convenience"](${boundsStr});node["tourism"="hotel"](${boundsStr}););out body;>;out skel qt;`;
         
-        const mapHeight = map.getSize().y;
-        const bottomPadding = mapHeight * 0.45;
-        map.fitBounds(polyline.getBounds(), { paddingTopLeft: [20, 40], paddingBottomRight: [20, bottomPadding + 20] });
+        try {
+            const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(poiQuery)}`);
+            if (!response.ok) throw new Error(`Overpass API query failed with status ${response.status}`);
+            const data = await response.json();
+            poiLayerRef.current?.clearLayers();
+            if (data.elements) {
+                data.elements.forEach((element: any) => {
+                    if (element.type === 'node' && element.tags && element.tags.name) {
+                        const marker = L.marker([element.lat, element.lon], { icon: getPoiIcon(element.tags) }).bindPopup(`<b>${element.tags.name}</b>`);
+                        poiLayerRef.current?.addLayer(marker);
+                    }
+                });
+            }
+        } catch (err) { console.error('Error fetching or displaying POIs:', err); } finally { setIsFetchingPois(false); }
+    };
+    const debouncedFetchPois = debounce(fetchAndDisplayPois, 1200);
+    map.on('moveend', debouncedFetchPois); map.on('zoomend', debouncedFetchPois); debouncedFetchPois();
+    return () => { map.off('moveend', debouncedFetchPois); map.off('zoomend', debouncedFetchPois); poiLayerRef.current?.clearLayers(); };
+  }, [mapInstanceRef.current, showSuggestionModal]); 
 
-        if (routeDistanceKm !== null) {
-            const centerOfPolyline = polyline.getCenter();
-            const distanceLabelIcon = L.divIcon({
-                className: 'route-distance-label',
-                html: `${routeDistanceKm.toFixed(1)} ${t.distanceUnit}`
-            });
-            L.marker(centerOfPolyline, { icon: distanceLabelIcon, zIndexOffset: 200 }).addTo(routeLayer);
-        }
-    }
-  }, [routeCoordinates, showServiceSheet, t.distanceUnit, routeDistanceKm]);
+  useEffect(() => {
+      const map = mapInstanceRef.current;
+      if (!map) return;
+
+      const handleZoomEnd = () => {
+          const zoom = map.getZoom();
+          userPlaceMarkersRef.current.forEach(marker => {
+              if (zoom >= 15) {
+                  marker.openTooltip();
+              } else {
+                  marker.closeTooltip();
+              }
+          });
+      };
+      map.on('zoomend', handleZoomEnd);
+      handleZoomEnd(); // Initial check
+
+      return () => {
+          map.off('zoomend', handleZoomEnd);
+      };
+  }, [mapInstanceRef.current]);
+
+  useEffect(() => {
+      const map = mapInstanceRef.current;
+      const layer = userPlacesLayerRef.current;
+      if (!map || !layer) return;
+
+      layer.clearLayers();
+      userPlaceMarkersRef.current = [];
+
+      userDefinedPlaces.forEach(place => {
+          const iconHTML = ReactDOMServer.renderToString(<UserPlaceMarkerIcon />);
+          const userPlaceIcon = L.divIcon({
+              html: iconHTML,
+              className: 'user-defined-place-icon',
+              iconSize: [24, 38],
+              iconAnchor: [12, 38],
+          });
+
+          const marker = L.marker([place.location.lat, place.location.lng], { icon: userPlaceIcon })
+              .addTo(layer)
+              .bindTooltip(place.name, {
+                  permanent: true,
+                  direction: 'right',
+                  offset: [10, -25], // Adjust to align vertically with the marker's center
+                  className: 'user-place-label'
+              });
+          
+          userPlaceMarkersRef.current.push(marker);
+      });
+
+      // Set initial visibility based on current zoom
+      const currentZoom = map.getZoom();
+      userPlaceMarkersRef.current.forEach(marker => {
+          if (currentZoom < 15) {
+              marker.closeTooltip();
+          }
+      });
+  }, [userDefinedPlaces, mapInstanceRef.current]);
 
 
-  // OMITTING THE REST OF THE COMPONENT FOR BREVITY AS IT'S LARGE AND UNCHANGED...
-  // THE RETURN JSX WOULD BE HERE WITH ALL THE BUTTONS AND UI ELEMENTS.
-  // The important part is that I have added the logic and state, and would integrate them
-  // into the JSX return block.
+  useEffect(() => { if (mapContainerRef.current) { mapContainerRef.current.style.cursor = isFetchingPois ? 'wait' : 'default'; } }, [isFetchingPois]);
+
+  useEffect(() => { const currentDebouncedUpdate = debounce((map: L.Map) => { return updateAddressFromMapCenter(map); }, 750); debouncedUpdateAddressRef.current = currentDebouncedUpdate; const map = mapInstanceRef.current; if (!map) return; if (!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet && !showSuggestionModal) { currentDebouncedUpdate(map).catch(err => console.error("Initial debounced call failed:", err)); } const handleMoveEnd = () => { if (!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet && !showSuggestionModal) { currentDebouncedUpdate(map).catch(err => console.error("Debounced move_end call failed:", err)); } }; map.on('moveend', handleMoveEnd); return () => { map.off('moveend', handleMoveEnd); }; }, [updateAddressFromMapCenter, showServiceSheet, showDriverSearchSheet, showTripInProgressSheet, showSuggestionModal]);
   
-  // A simplified JSX to show where the new components would go:
-  const mapScreenContainerStyle: CSSProperties = { position: 'relative', width: '100%', height: '100vh', overflow: 'hidden' };
-  const fixedMarkerStyle: CSSProperties = { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -100%)', zIndex: 1000, pointerEvents: 'none', display: (showServiceSheet || showTripInProgressSheet) ? 'none' : 'block' };
-  const uiOverlayStyle: CSSProperties = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', display: 'flex', flexDirection: 'column', padding: '1rem', zIndex: 1010 };
-  const topUiContainerStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', pointerEvents: 'auto' };
-  const bottomUiContainerStyle: CSSProperties = { marginTop: 'auto', pointerEvents: 'auto' };
-  const confirmButtonStyle: CSSProperties = { width: '100%', padding: '1rem', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '0.75rem', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)' };
+  useEffect(() => {
+    if (!isSearchFocused) {
+      setUserInput(searchQuery);
+    }
+  }, [searchQuery, isSearchFocused]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (serviceDropdownRef.current && !serviceDropdownRef.current.contains(event.target as Node)) { setIsServiceDropdownOpen(false); }
+        if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+          setIsSearchFocused(false); 
+          setSearchResults([]);
+        }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current; if (!map) return;
+    if (showTripInProgressSheet && confirmedOrigin) { if (!originMapMarker) { const originIconHTML = ReactDOMServer.renderToString(<LocationMarkerIcon color="#FFD700" style={{filter: 'drop-shadow(0px 0px 3px rgba(0,0,0,0.5))'}} />); const originIcon = L.divIcon({ html: originIconHTML, className: 'origin-trip-marker', iconSize: [40, 40], iconAnchor: [20, 40] }); const newOriginMarker = L.marker([confirmedOrigin.lat, confirmedOrigin.lng], { icon: originIcon }).addTo(map); setOriginMapMarker(newOriginMarker); } } else { if (originMapMarker && map.hasLayer(originMapMarker)) { map.removeLayer(originMapMarker); setOriginMapMarker(null); } }
+    if (showTripInProgressSheet && confirmedDestination) { if (!destinationMapMarker) { const destIconHTML = ReactDOMServer.renderToString(<DestinationMarkerIcon color="#000000" style={{filter: 'drop-shadow(0px 0px 3px rgba(0,0,0,0.5))'}} />); const destinationIcon = L.divIcon({ html: destIconHTML, className: 'destination-trip-marker', iconSize: [40, 40], iconAnchor: [20, 20] }); const newDestMarker = L.marker([confirmedDestination.lat, confirmedDestination.lng], { icon: destinationIcon }).addTo(map); setDestinationMapMarker(newDestMarker); } } else { if (destinationMapMarker && map.hasLayer(destinationMapMarker)) { map.removeLayer(destinationMapMarker); setDestinationMapMarker(null); } }
+  }, [showTripInProgressSheet, confirmedOrigin, confirmedDestination, mapInstanceRef.current]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current; if (!map) return; const driverId = currentDriverDetails?.driverId;
+    if (showTripInProgressSheet && driverId && confirmedOrigin) {
+      const initializeAndTrack = async () => {
+        let initialLatLng: L.LatLng | null = null;
+        try {
+          const locationData = await profileService.fetchDriverProfile(driverId);
+          initialLatLng = L.latLng(confirmedOrigin.lat, confirmedOrigin.lng);
+        } catch (e) { console.error("Exception fetching initial driver location:", e); initialLatLng = L.latLng(confirmedOrigin.lat, confirmedOrigin.lng); }
+        
+        if (initialLatLng) { if (!driverMarkerRef.current) { const carIconHTML = ReactDOMServer.renderToString(<DriverCarIcon />); const carIcon = L.divIcon({ html: carIconHTML, className: 'driver-car-icon', iconSize: [40, 40], iconAnchor: [20, 20] }); driverMarkerRef.current = L.marker(initialLatLng, { icon: carIcon, zIndexOffset: 1000, }).addTo(map); } else { driverMarkerRef.current.setLatLng(initialLatLng); } }
+        
+        if (driverLocationChannelRef.current) { supabase.removeChannel(driverLocationChannelRef.current); }
+        driverLocationChannelRef.current = supabase.channel(`driver_location_${driverId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'driver_locations', filter: `driver_id=eq.${driverId}` }, (payload) => {
+          const newLocation = payload.new as { latitude: number, longitude: number, heading?: number };
+          if (newLocation && driverMarkerRef.current) {
+            const newPos = L.latLng(newLocation.latitude, newLocation.longitude); driverMarkerRef.current.setLatLng(newPos);
+            const boundsToShowUpdate: L.LatLngExpression[] = [];
+            if (confirmedOrigin) boundsToShowUpdate.push(L.latLng(confirmedOrigin.lat, confirmedOrigin.lng));
+            if (confirmedDestination) boundsToShowUpdate.push(L.latLng(confirmedDestination.lat, confirmedDestination.lng));
+            boundsToShowUpdate.push(newPos);
+            if (map && boundsToShowUpdate.length >= 2) { map.fitBounds(L.latLngBounds(boundsToShowUpdate), { padding: [80, 80], maxZoom: 17, animate: true }); }
+          }
+        }).subscribe();
+      };
+      initializeAndTrack();
+    } else {
+        if (driverMarkerRef.current && map.hasLayer(driverMarkerRef.current)) { map.removeLayer(driverMarkerRef.current); driverMarkerRef.current = null; }
+        if (driverLocationChannelRef.current) { supabase.removeChannel(driverLocationChannelRef.current); driverLocationChannelRef.current = null; }
+    }
+    return () => { if (driverMarkerRef.current && map?.hasLayer(driverMarkerRef.current)) { map.removeLayer(driverMarkerRef.current); driverMarkerRef.current = null; } if (driverLocationChannelRef.current) { supabase.removeChannel(driverLocationChannelRef.current); driverLocationChannelRef.current = null; } };
+  }, [ mapInstanceRef.current, showTripInProgressSheet, currentDriverDetails?.driverId, confirmedOrigin, confirmedDestination, tripPhase, supabase ]);
+
+  useEffect(() => {
+    const layer = suggestionMarkersLayerRef.current;
+    if (!mapInstanceRef.current || !layer) return;
+    layer.clearLayers();
+    if (suggestedDestinations.length > 0) {
+        const bounds = L.latLngBounds([]);
+        suggestedDestinations.forEach(suggestion => {
+            const marker = L.marker([suggestion.latitude, suggestion.longitude], {
+                icon: L.divIcon({
+                    html: `<div style="background-color: #8B5CF6; color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">AI</div>`,
+                    className: 'gemini-suggestion-marker', iconSize: [32, 32], iconAnchor: [16, 16]
+                })
+            }).bindPopup(`<b>${suggestion.name}</b><br>${suggestion.description}`);
+            layer.addLayer(marker); bounds.extend([suggestion.latitude, suggestion.longitude]);
+        });
+        if (currentUserLocation) { bounds.extend([currentUserLocation.lat, currentUserLocation.lng]); }
+        if (bounds.isValid()) { mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 }); }
+    }
+  }, [suggestedDestinations, currentUserLocation]);
+  
+  const handleGpsClick = async () => {
+    const map = mapInstanceRef.current; if (!map || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) return;
+    try { const position = await getCurrentLocation(); const userLatLng: L.LatLngExpression = [position.coords.latitude, position.coords.longitude]; map.setView(userLatLng, 15); if (debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(map).catch(err => console.error("Debounced GPS click call failed:", getDebugMessage(err), err)); } } catch (error: any) { console.error("Error getting GPS location:", getDebugMessage(error), error); let message = ""; switch (error.code) { case 1: message = t.geolocationPermissionDenied; break; case 2: message = t.geolocationUnavailableHintVpnOrSignal; break; case 3: message = t.geolocationTimeout; break; default: message = t.geolocationNotSupported; break; } alert(message); }
+  };
+
+  const calculateRouteDistance = async (origin: {lat: number, lng: number}, destination: {lat: number, lng: number}) => { setIsCalculatingDistance(true); setDistanceError(null); setRouteDistanceKm(null); try { 
+    const fetchOptions: RequestInit = { method: 'GET', mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' };
+    const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false`, fetchOptions); 
+    if (!response.ok) { throw new Error(`OSRM API error: ${response.status} ${response.statusText}`); } const data = await response.json(); if (data.routes && data.routes.length > 0 && data.routes[0].distance) { const distanceInKm = data.routes[0].distance / 1000; setRouteDistanceKm(distanceInKm); } else { throw new Error("No route found or distance missing in OSRM response."); } } catch (error) { console.error("Error calculating route distance:", error); setDistanceError(t.priceCalculationError); } finally { setIsCalculatingDistance(false); } };
+  
+  const handleConfirmOriginOrDestination = () => { if (isLoadingAddress || isSearching || !mapInstanceRef.current || !address || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) return; const currentMap = mapInstanceRef.current; const center = currentMap.getCenter(); const currentValidAddress = address; 
+  if (serviceFor === 'other') { if (!thirdPartyName.trim()) { setThirdPartyFormError(t.fullNameLabel + ' ' + (isRTL ? 'الزامی است' : 'is required')); return; } if (!/^07[0-9]{8}$/.test(thirdPartyPhone)) { setThirdPartyFormError(t.invalidPhoneError); return; } setThirdPartyFormError(''); }
+  if (selectionMode === 'origin') { setConfirmedOrigin({ lat: center.lat, lng: center.lng, address: currentValidAddress }); setSelectionMode('destination'); setSearchQuery(''); setUserInput(''); setAddress(''); setSearchError(''); if (debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(currentMap).catch(err => console.error("Update address for dest failed:", err)); } } else { const destDetails = { lat: center.lat, lng: center.lng, address: currentValidAddress }; setConfirmedDestination(destDetails); if(confirmedOrigin) { calculateRouteDistance( {lat: confirmedOrigin.lat, lng: confirmedOrigin.lng}, {lat: destDetails.lat, lng: destDetails.lng} ).finally(() => { setShowServiceSheet(true); }); } else { setDistanceError("Origin not confirmed."); setShowServiceSheet(true); } } };
+
+  useEffect(() => {
+    if (loggedInUserId && allAppServices.length > 0) {
+        tripActions.recoverTrip();
+    }
+  }, [loggedInUserId, allAppServices, tripActions.recoverTrip]);
+
+  const handleRequestRideFromSheet = (service: AppService, originAddressText: string, destinationAddressText: string, estimatedPrice: number | null) => { setShowServiceSheet(false); if (confirmedOrigin && confirmedDestination) { tripActions.startRideRequest(service, confirmedOrigin, confirmedDestination, estimatedPrice, serviceFor, thirdPartyName, thirdPartyPhone); } else { console.error("Origin or destination not confirmed for ride request."); alert(t.rideRequestCreationError + " (Origin/Dest missing)"); } };
+  
+  const resetToInitialMapState = () => {
+    tripActions.resetTripState();
+    setShowServiceSheet(false); setSelectionMode('origin'); setConfirmedOrigin(null); setConfirmedDestination(null); setSearchQuery(''); setUserInput(''); setAddress(''); setRouteDistanceKm(null); setIsCalculatingDistance(false); setDistanceError(null);
+    if (mapInstanceRef.current && debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(mapInstanceRef.current) .catch(err => console.error("Update address for new origin failed:", err)); }
+  };
+  
+  const handleDestinationSuggested = (suggestion: DestinationSuggestion) => {
+    setShowSuggestionModal(false); setSuggestedDestinations([]); const destDetails = { lat: suggestion.latitude, lng: suggestion.longitude, address: suggestion.name }; setConfirmedDestination(destDetails); if (confirmedOrigin) { calculateRouteDistance({ lat: confirmedOrigin.lat, lng: confirmedOrigin.lng }, { lat: destDetails.lat, lng: destDetails.lng }).finally(() => { setShowServiceSheet(true); }); } else { setDistanceError("Origin not confirmed."); setShowServiceSheet(true); }
+  };
+
+  const handleGoBackToOriginSelection = () => { setSelectionMode('origin'); setSearchError(''); setShowServiceSheet(false); setRouteDistanceKm(null); setIsCalculatingDistance(false); setDistanceError(null); if (confirmedOrigin) { setAddress(confirmedOrigin.address); setSearchQuery(confirmedOrigin.address); if (mapInstanceRef.current) { mapInstanceRef.current.setView([confirmedOrigin.lat, confirmedOrigin.lng]); } } else if (mapInstanceRef.current && debouncedUpdateAddressRef.current) { setAddress(''); setSearchQuery(''); debouncedUpdateAddressRef.current(mapInstanceRef.current).catch(err => console.error("Update address on back failed:", err)); } };
+  const handleCloseServiceSheet = () => { setShowServiceSheet(false); if (confirmedDestination && mapInstanceRef.current) { mapInstanceRef.current.setView([confirmedDestination.lat, confirmedDestination.lng]); setAddress(confirmedDestination.address); setSearchQuery(confirmedDestination.address); setSelectionMode('destination'); setIsLoadingAddress(false); setSearchError(''); } };
+  const toggleServiceDropdown = () => setIsServiceDropdownOpen(!isServiceDropdownOpen);
+  const selectServiceType = (type: 'self' | 'other') => { setServiceFor(type); setIsServiceDropdownOpen(false); if (type === 'self') { setThirdPartyName(''); setThirdPartyPhone(''); setThirdPartyFormError(''); } };
+  
+  const handleSearchFocus = () => {
+    setIsSearchFocused(true);
+    if (
+      userInput === address ||
+      userInput === t.addressLoading ||
+      userInput === t.addressError ||
+      userInput === t.addressNotFound
+    ) {
+      setUserInput('');
+    }
+  };
+
+  const mapScreenContainerStyle: CSSProperties = { width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', backgroundColor: '#e0e0e0' };
+  const leafletMapContainerStyle: CSSProperties = { width: '100%', height: '100%' };
+  const fixedMarkerStyle: CSSProperties = { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -100%)', zIndex: 1000, pointerEvents: 'none', display: (showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || !mapInstanceRef.current || showSuggestionModal) ? 'none' : 'block' };
+  const topControlsContainerStyle: CSSProperties = { position: 'absolute', top: '1rem', left: '1rem', right: '1rem', height: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1010, pointerEvents: 'none', gap: '0.5rem' };
+  const topBarButtonStyle: CSSProperties = { backgroundColor: 'white', borderRadius: '50%', width: '2.75rem', height: '2.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', cursor: 'pointer', border: 'none', padding: 0, };
+  const serviceTypePillContainerStyle: CSSProperties = { flexGrow: 1, display: 'flex', justifyContent: 'center', pointerEvents: 'none', visibility: (showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) ? 'hidden' : 'visible', };
+  const serviceTypePillStyle: CSSProperties = { backgroundColor: 'white', borderRadius: '2rem', padding: '0.5rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', fontSize: '0.875rem', color: '#333', fontWeight: 500, pointerEvents: 'auto', margin: '0 auto', };
+  const serviceDropdownStyle: CSSProperties = { position: 'absolute', top: 'calc(100% + 0.5rem)', left: '50%', transform: 'translateX(-50%)', backgroundColor: 'white', borderRadius: '0.5rem', boxShadow: '0 2px 6px rgba(0,0,0,0.2)', zIndex: 1011, minWidth: '150px', border: '1px solid #eee' };
+  const serviceDropdownItemStyle: CSSProperties = { padding: '0.75rem 1rem', cursor: 'pointer', fontSize: '0.875rem', textAlign: isRTL ? 'right' : 'left' }; const serviceDropdownItemHoverStyle: CSSProperties = { backgroundColor: '#f0f0f0' };
+  const getGpsButtonBottom = () => {
+    if (showServiceSheet) return 'calc(70vh + 1rem)';
+    if (showDriverSearchSheet) return 'calc(250px + 1rem)';
+    if (showTripInProgressSheet) { if (tripSheetDisplayLevel === 'peek') return 'calc(80px + 1rem)'; if (tripSheetDisplayLevel === 'default') return 'calc(310px + 1rem)'; return 'calc(75vh + 1rem)'; }
+    return '18rem';
+  };
+  const gpsButtonVisibilityLogic = (showServiceSheet || showDriverSearchSheet || showSuggestionModal || (showTripInProgressSheet && tripSheetDisplayLevel === 'full')) ? 'hidden' : 'visible';
+  const gpsButtonStyle: CSSProperties = { position: 'absolute', bottom: getGpsButtonBottom(), [isRTL ? 'right' : 'left']: '1rem', backgroundColor: 'white', borderRadius: '50%', width: '3.25rem', height: '3.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', cursor: 'pointer', zIndex: 1000, border: 'none', transition: 'bottom 0.3s ease-out, visibility 0.3s ease-out', visibility: gpsButtonVisibilityLogic, };
+  const bottomPanelStyle: CSSProperties = { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'white', padding: '1rem 1.5rem 1.5rem', borderTopLeftRadius: '1rem', borderTopRightRadius: '1rem', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)', zIndex: 1000, display: 'flex', flexDirection: 'column', transform: (showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) ? 'translateY(100%)' : 'translateY(0)', visibility: (showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) ? 'hidden' : 'visible', transition: 'transform 0.3s ease-out, visibility 0.3s ease-out' };
+  const searchSectionStyle: CSSProperties = { position: 'relative' };
+  const addressInputContainerStyle: CSSProperties = { display: 'flex', alignItems: 'center', backgroundColor: '#f0f0f0', borderRadius: '0.5rem', padding: isRTL ? '0.75rem 1rem 0.75rem 0.5rem' : '0.75rem 0.5rem 0.75rem 1rem' };
+  const addressPointStyle: CSSProperties = { width: '10px', height: '10px', backgroundColor: selectionMode === 'origin' ? '#007bff' : '#28a745', borderRadius: selectionMode === 'origin' ? '50%' : '2px', [isRTL ? 'marginLeft' : 'marginRight']: '0.75rem', flexShrink: 0 };
+  const addressInputStyle: CSSProperties = { flexGrow: 1, fontSize: '0.9rem', color: '#333', textAlign: isRTL ? 'right' : 'left', backgroundColor: 'transparent', border: 'none', outline: 'none', padding: '0 0.5rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', };
+  const searchResultsContainerStyle: CSSProperties = { position: 'absolute', bottom: 'calc(100% - 0.5rem)', left: 0, right: 0, backgroundColor: 'white', borderRadius: '0.5rem', boxShadow: '0 -4px 12px rgba(0,0,0,0.1)', zIndex: 1001, maxHeight: '250px', overflowY: 'auto', border: '1px solid #e0e0e0' };
+  const searchResultItemStyle: CSSProperties = { padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', gap: '0.75rem' };
+  const searchResultItemHoverStyle: CSSProperties = { backgroundColor: '#f8f9fa' };
+  const searchResultTextStyle: CSSProperties = { fontSize: '0.9rem', color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+  const searchErrorStyle: CSSProperties = { fontSize: '0.75rem', color: 'red', textAlign: 'center', minHeight: '1.2em', margin: '0.5rem 0' };
+  const verificationWarningStyle: CSSProperties = { fontSize: '0.8rem', color: '#D97706', textAlign: 'center', marginBottom: '0.5rem', backgroundColor: 'rgba(251, 191, 36, 0.1)', padding: '0.4rem', borderRadius: '0.25rem', };
+  const confirmMainButtonStyle: CSSProperties = { width: '100%', backgroundColor: selectionMode === 'destination' ? '#28a745' : '#007bff', color: 'white', border: 'none', padding: '0.875rem', borderRadius: '0.5rem', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', transition: 'background-color 0.2s', marginTop: '0.5rem' };
+  const confirmMainButtonHoverStyle: CSSProperties = { backgroundColor: selectionMode === 'destination' ? '#218838' : '#0056b3' };
+  const isThirdPartyFormInvalid = serviceFor === 'other' && (!thirdPartyName.trim() || !/^07[0-9]{8}$/.test(thirdPartyPhone));
+  const confirmMainButtonDisabledStyle: CSSProperties = { backgroundColor: '#a5d6a7', cursor: 'not-allowed' };
+  const [isConfirmMainButtonHovered, setIsConfirmMainButtonHovered] = useState(false);
+  let currentConfirmMainButtonStyle = confirmMainButtonStyle;
+  if (isLoadingAddress || isSearching || !address || isThirdPartyFormInvalid || !isUserVerified) { currentConfirmMainButtonStyle = {...currentConfirmMainButtonStyle, ...confirmMainButtonDisabledStyle}; } else if (isConfirmMainButtonHovered) { currentConfirmMainButtonStyle = {...currentConfirmMainButtonStyle, ...confirmMainButtonHoverStyle}; }
 
   return (
     <div style={mapScreenContainerStyle}>
-        <div ref={mapContainerRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
-        <div ref={fixedMarkerRef} style={fixedMarkerStyle}>
-            {selectionMode === 'origin' ? <LocationMarkerIcon /> : <DestinationMarkerIcon />}
+      <div ref={mapContainerRef} style={leafletMapContainerStyle} />
+      <div ref={fixedMarkerRef} style={fixedMarkerStyle} aria-live="polite" aria-atomic="true">
+        {selectionMode === 'origin' ? <LocationMarkerIcon ariaLabel={t.originMarkerAriaLabel} /> : <DestinationMarkerIcon ariaLabel={t.destinationMarkerAriaLabel} /> }
+      </div>
+      <div style={topControlsContainerStyle}>
+        <div style={{ pointerEvents: 'auto' }}>
+          { (showDriverSearchSheet || showTripInProgressSheet) ? ( <button style={topBarButtonStyle} onClick={resetToInitialMapState} aria-label={t.closeDriverSearchSheetAriaLabel}> <CloseIcon /> </button> ) : (showServiceSheet || showSuggestionModal) ? ( <button style={topBarButtonStyle} onClick={() => { setShowServiceSheet(false); setShowSuggestionModal(false); setSuggestedDestinations([]); }} aria-label={t.closeSheetButtonAriaLabel}> <BackArrowIcon style={{transform: isRTL ? 'scaleX(-1)' : 'none'}}/> </button> ) : selectionMode === 'destination' ? ( <button style={topBarButtonStyle} onClick={handleGoBackToOriginSelection} aria-label={t.backButtonAriaLabel}> <BackArrowIcon style={{transform: isRTL ? 'scaleX(-1)' : 'none'}}/> </button> ) : ( <button style={topBarButtonStyle} aria-label={t.homeButtonAriaLabel}><HomeIcon /></button> )}
         </div>
-        
-        {showServiceSheet && confirmedOrigin && confirmedDestination && (
-            <ServiceSelectionSheet
-                currentLang={currentLang}
-                originAddress={confirmedOrigin.address}
-                destinationAddress={confirmedDestination.address}
-                routeDistanceKm={routeDistanceKm}
-                isCalculatingDistance={isCalculatingDistance}
-                distanceError={distanceError}
-                onClose={handleCloseServiceSheet}
-                onRequestRide={handleRequestRide}
-                serviceCategories={appServiceCategories}
-                isLoadingServices={isLoadingServicesGlobal}
-                serviceFetchError={serviceFetchErrorGlobal}
-            />
+        <div style={serviceTypePillContainerStyle}> {!(showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) && ( <div ref={serviceDropdownRef} style={{ position: 'relative', pointerEvents: 'auto' }}> <div style={serviceTypePillStyle} onClick={toggleServiceDropdown}> {serviceFor === 'self' ? t.serviceForSelf : t.serviceForOther} <ChevronDownIcon style={{ [isRTL ? 'marginRight' : 'marginLeft']: '0.5rem', transform: isServiceDropdownOpen ? 'rotate(180deg)' : '' }} /> </div> {isServiceDropdownOpen && ( <div style={serviceDropdownStyle}> <div style={serviceDropdownItemStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemStyle.backgroundColor!} onClick={() => selectServiceType('self')}>{t.serviceForSelf}</div> <div style={serviceDropdownItemStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemStyle.backgroundColor!} onClick={() => selectServiceType('other')}>{t.serviceForOther}</div> </div> )} </div> )} </div>
+        <div style={{ pointerEvents: 'auto', display: 'flex', gap: '0.5rem' }}>
+            {selectionMode === 'origin' && !showServiceSheet && !showTripInProgressSheet && !showDriverSearchSheet &&
+                <button style={topBarButtonStyle} aria-label={t.geminiSuggestButtonLabel} onClick={() => setShowSuggestionModal(true)}>
+                    <GeminiSuggestIcon />
+                </button>
+            }
+            <button style={topBarButtonStyle} aria-label={t.profileButtonAriaLabel} onClick={onNavigateToProfile}><ProfileIcon /></button>
+        </div>
+      </div>
+      <button style={gpsButtonStyle} onClick={handleGpsClick} aria-label={t.gpsButtonAriaLabel}><GpsIcon /></button>
+      <div style={bottomPanelStyle}>
+        {serviceFor === 'other' && (
+            <div style={{ marginBottom: '0.5rem', borderBottom: '1px solid #e0e0e0', paddingBottom: '1rem' }}>
+                <input type="text" placeholder={t.passengerNameLabel} value={thirdPartyName} onChange={(e) => { setThirdPartyName(e.target.value); if (thirdPartyFormError) setThirdPartyFormError(''); }} style={{...addressInputStyle, width: '100%', boxSizing: 'border-box', marginBottom: '0.75rem', backgroundColor: '#fff', border: '1px solid #ddd', padding: '0.75rem'}} />
+                <input type="tel" placeholder={t.passengerPhoneLabel} value={thirdPartyPhone} onChange={(e) => { const value = e.target.value.replace(/[^0-9]/g, ''); setThirdPartyPhone(value); if (thirdPartyFormError) setThirdPartyFormError(''); }} style={{...addressInputStyle, width: '100%', boxSizing: 'border-box', backgroundColor: '#fff', border: '1px solid #ddd', padding: '0.75rem'}} maxLength={10} dir="ltr" />
+            </div>
         )}
-        
-        {showDriverSearchSheet && selectedService && (
-          <DriverSearchSheet
-            currentLang={currentLang}
-            searchState={driverSearchState}
-            notifiedDriverCount={notifiedDriverCount}
-            onRetry={tripActions.retryRideRequest}
-            onCancel={tripActions.resetTripState}
-            onClose={tripActions.resetTripState}
-            selectedServiceName={t[selectedService.nameKey] || selectedService.id}
-          />
-        )}
-
-        {showTripInProgressSheet && currentDriverDetails && (
-          <TripInProgressSheet
-            currentLang={currentLang}
-            driverDetails={currentDriverDetails}
-            tripFare={currentTripFare}
-            tripPhase={tripPhase}
-            estimatedTimeToDestination={estimatedTimeToDestination}
-            displayLevel={tripSheetDisplayLevel}
-            onSetDisplayLevel={tripActions.setTripSheetDisplayLevel}
-            onChangeDestination={showNotImplemented}
-            onApplyCoupon={showNotImplemented}
-            onRideOptions={showNotImplemented}
-            onCancelTrip={tripActions.openCancellationModal}
-            onSafety={showNotImplemented}
-            onClose={tripActions.resetTripState}
-            appServices={allAppServices}
-          />
-        )}
-
-        {isCancellationModalOpen && (
-            <CancellationModal
-                isOpen={isCancellationModalOpen}
-                onClose={tripActions.closeCancellationModal}
-                onSubmit={tripActions.submitCancellation}
-                userRole="passenger"
-                currentLang={currentLang}
-                isSubmitting={isSubmittingCancellation}
-            />
-        )}
-        
-        <div style={uiOverlayStyle}>
-            {/* Top Bar with Search, Profile, etc. */}
-             {!showTripInProgressSheet && (
-                <div style={{ pointerEvents: 'auto' }}>
-                    {/* ... Search Bar, Profile Icon, etc. would be rendered here ... */}
-                </div>
-             )}
-
-
-            {/* Bottom Bar with Confirm Buttons */}
-            {!showServiceSheet && !showDriverSearchSheet && !showTripInProgressSheet && (
-                <div style={bottomUiContainerStyle}>
-                    <button 
-                      onClick={selectionMode === 'origin' ? handleConfirmOrigin : handleConfirmDestination}
-                      style={confirmButtonStyle}
+        <div style={searchSectionStyle} ref={searchContainerRef}>
+          <div style={addressInputContainerStyle}> 
+              <div style={addressPointStyle} /> 
+              <input type="text" style={addressInputStyle} value={isSearchFocused ? userInput : (isLoadingAddress ? t.addressLoading : searchQuery)} onChange={handleSearchInputChange} onFocus={handleSearchFocus} placeholder={selectionMode === 'origin' ? t.searchPlaceholderOrigin : t.searchPlaceholderDestination} readOnly={isLoadingAddress} aria-label={t.searchAddressLabel} dir={isRTL ? 'rtl': 'ltr'} /> 
+              <button style={ { background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', flexShrink: 0 } } onClick={() => handleManualSearch(userInput)} disabled={isSearching || isLoadingAddress} > 
+                {isSearching ? <div style={{width:'1rem', height:'1rem', border:'2px solid #ccc', borderTopColor:'#555', borderRadius:'50%', animation:'spin 1s linear infinite'}}></div> : <SearchIcon />} 
+              </button> 
+          </div>
+          {searchResults.length > 0 && (
+            <div style={searchResultsContainerStyle}>
+                {searchResults.map((result, index) => (
+                    <div 
+                        key={`${result.type}-${index}`} 
+                        style={searchResultItemStyle} 
+                        onClick={() => handleSelectSearchResult(result)}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = searchResultItemHoverStyle.backgroundColor!}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''}
                     >
-                        {selectionMode === 'origin' ? t.confirmOriginButton : t.confirmDestinationButton}
-                    </button>
-                </div>
-             )}
+                        {result.type === 'saved' && <StarIcon filled={true} style={{width: '1rem', height: '1rem', color: '#F59E0B', flexShrink:0}} />}
+                        {result.type === 'nominatim' && <LocationMarkerIcon color="#718096" style={{width: '1rem', height: '1rem', flexShrink:0}} />}
+                        <span style={searchResultTextStyle} title={result.displayName}>{result.displayName}</span>
+                    </div>
+                ))}
+            </div>
+          )}
         </div>
+        {searchError || thirdPartyFormError ? <p style={searchErrorStyle} role="alert">{searchError || thirdPartyFormError}</p> : <div style={{...searchErrorStyle, visibility: 'hidden'}}>Placeholder</div> }
+        {!isUserVerified && <p style={verificationWarningStyle}>{t.accountNotVerifiedWarning}</p>}
+        <button style={currentConfirmMainButtonStyle} onMouseEnter={() => setIsConfirmMainButtonHovered(true)} onMouseLeave={() => setIsConfirmMainButtonHovered(false)} onClick={handleConfirmOriginOrDestination} disabled={isLoadingAddress || isSearching || !address || isThirdPartyFormInvalid || !isUserVerified || searchResults.length > 0} > {selectionMode === 'origin' ? t.confirmOriginButton : t.confirmDestinationButton} </button>
+      </div>
+      {showServiceSheet && confirmedOrigin && confirmedDestination && ( <ServiceSelectionSheet currentLang={currentLang} originAddress={confirmedOrigin.address} destinationAddress={confirmedDestination.address} routeDistanceKm={routeDistanceKm} isCalculatingDistance={isCalculatingDistance} distanceError={distanceError} onClose={handleCloseServiceSheet} onRequestRide={handleRequestRideFromSheet} serviceCategories={appServiceCategories} isLoadingServices={isLoadingServicesGlobal} serviceFetchError={serviceFetchErrorGlobal} /> )}
+      {showDriverSearchSheet && tripActions.getSelectedService() && ( <DriverSearchSheet currentLang={currentLang} searchState={driverSearchState} notifiedDriverCount={notifiedDriverCount} onRetry={tripActions.retryRideRequest} onCancel={resetToInitialMapState} onClose={resetToInitialMapState} selectedServiceName={t[tripActions.getSelectedService()!.nameKey] || tripActions.getSelectedService()!.id} /> )}
+      {showTripInProgressSheet && currentDriverDetails && ( <TripInProgressSheet currentLang={currentLang} driverDetails={currentDriverDetails} tripFare={currentTripFare} tripPhase={tripPhase} estimatedTimeToDestination={estimatedTimeToDestination} displayLevel={tripSheetDisplayLevel} onSetDisplayLevel={tripActions.setTripSheetDisplayLevel} onChangeDestination={() => {}} onApplyCoupon={() => {}} onRideOptions={() => {}} onCancelTrip={tripActions.openCancellationModal} onSafety={() => {}} onClose={resetToInitialMapState} appServices={allAppServices} /> )}
+      {isCancellationModalOpen && ( <CancellationModal isOpen={isCancellationModalOpen} onClose={tripActions.closeCancellationModal} onSubmit={tripActions.submitCancellation} userRole={'passenger'} currentLang={currentLang} isSubmitting={isSubmittingCancellation} /> )}
+      {showSuggestionModal && ( <GeminiSuggestionModal currentLang={currentLang} userLocation={currentUserLocation} onClose={() => { setShowSuggestionModal(false); setSuggestedDestinations([]); }} onDestinationSelect={handleDestinationSuggested} onSuggestionsLoaded={setSuggestedDestinations} /> )}
     </div>
   );
 };

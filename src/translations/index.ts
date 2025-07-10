@@ -252,7 +252,6 @@ const faTranslations = {
   geminiApiError: "دریافت پیشنهاد با خطا مواجه شد. لطفاً بعداً تلاش کنید.",
   geminiSelectAsDestination: "انتخاب به عنوان مقصد",
   geminiTellUsMore: "دنبال چه چیزی می‌گردید؟",
-  distanceUnit: "کیلومتر",
 };
 
 export type TranslationSet = typeof faTranslations;
@@ -508,7 +507,6 @@ const psTranslations: TranslationSet = {
   geminiApiError: "د وړاندیزونو په ترلاسه کولو کې پاتې راغلل. مهرباني وکړئ وروسته بیا هڅه وکړئ.",
   geminiSelectAsDestination: "د مقصد په توګه وټاکئ",
   geminiTellUsMore: "تاسو د څه شي په لټه کې یاست؟",
-  distanceUnit: "کیلومتره",
 };
 
 const enTranslations: TranslationSet = {
@@ -762,7 +760,6 @@ const enTranslations: TranslationSet = {
   geminiApiError: "Could not get suggestions. Please try again later.",
   geminiSelectAsDestination: "Set as Destination",
   geminiTellUsMore: "What are you looking for?",
-  distanceUnit: "km",
 };
 
 export const translations: Record<Language, TranslationSet> = {
