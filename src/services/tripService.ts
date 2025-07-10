@@ -82,7 +82,7 @@ export const tripService = {
         console.error("TripService: Error fetching active passenger trip -", getDebugMessage(error), error);
         throw error;
     }
-    return data;
+    return data as RideRequest | null;
   },
 
   async fetchActiveDriverTrip(driverId: string): Promise<RideRequest | null> {
@@ -100,7 +100,7 @@ export const tripService = {
         console.error("TripService: Error fetching active driver trip -", getDebugMessage(error), error);
         throw error;
     }
-    return data;
+    return data as RideRequest | null;
   },
 
   async fetchAllPendingRequestsForDriver(): Promise<RideRequest[]> {
@@ -109,6 +109,6 @@ export const tripService = {
         console.error('[TripService] Error fetching all pending requests:', getDebugMessage(error), error); 
         throw error;
     }
-    return data || [];
+    return (data as RideRequest[]) || [];
   }
 };

@@ -1,3 +1,4 @@
+
 import React, { CSSProperties } from 'react';
 import { translations, TranslationSet } from '../translations';
 
@@ -116,6 +117,7 @@ export interface DriverProfileData {
   plateNumbers: string; // e.g., "34567"
   plateTypeChar: string; // e.g., "ش"
   alertSoundPreference?: string; // e.g., "default_notification.mp3", "chime.mp3", "custom:my_sound.mp3"
+  alertSoundVolume?: number;
 }
 
 // PassengerProfileData can be a subset of User table fields + any specific passenger profile fields

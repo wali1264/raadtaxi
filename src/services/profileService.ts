@@ -1,8 +1,10 @@
+
 import { supabase } from './supabase';
 import { UserRole, Language, DriverProfileData, PassengerDetails, UserSessionData, UserDefinedPlace } from '../types';
+import { Database } from '../types/supabase';
 import { getDebugMessage } from '../utils/helpers'; 
 
-const DEFAULT_SOUND_URL = 'https://actions.google.com/sounds/v1/notifications/card_dismiss.ogg';
+const DEFAULT_SOUND_KEY = 'default';
 const BUCKET_NAME = 'profile-pictures';
 
 // These helpers are also in useUserDefinedPlaces.ts.
@@ -123,7 +125,7 @@ export const profileService = {
   async createDriverProfileEntry(userId: string) {
     const { error } = await supabase
       .from('drivers_profile')
-      .insert([{ user_id: userId, current_status: 'offline', alert_sound_preference: DEFAULT_SOUND_URL }]); 
+      .insert([{ user_id: userId, current_status: 'offline', alert_sound_preference: DEFAULT_SOUND_KEY, alert_sound_volume: 0.8 }]); 
     if (error) {
       console.error("ProfileService: Error creating driver profile entry -", getDebugMessage(error), error);
       throw error;
@@ -148,7 +150,7 @@ export const profileService = {
     
     const { data: driverProfileData, error: driverProfileError } = await supabase
         .from('drivers_profile')
-        .select('vehicle_model, vehicle_color, plate_region, plate_numbers, plate_type_char, alert_sound_preference')
+        .select('vehicle_model, vehicle_color, plate_region, plate_numbers, plate_type_char, alert_sound_preference, alert_sound_volume')
         .eq('user_id', userId)
         .single();
 
@@ -167,7 +169,8 @@ export const profileService = {
         plateRegion: driverProfileData?.plate_region || '',
         plateNumbers: driverProfileData?.plate_numbers || '',
         plateTypeChar: driverProfileData?.plate_type_char || '',
-        alertSoundPreference: driverProfileData?.alert_sound_preference || DEFAULT_SOUND_URL,
+        alertSoundPreference: driverProfileData?.alert_sound_preference || DEFAULT_SOUND_KEY,
+        alertSoundVolume: driverProfileData?.alert_sound_volume ?? 0.8,
     };
   },
 
@@ -196,7 +199,7 @@ export const profileService = {
           }
       }
       
-      const driverProfileDbUpdates: { [key: string]: any } = { user_id: userId };
+      const driverProfileDbUpdates: Database['public']['Tables']['drivers_profile']['Insert'] = { user_id: userId };
       
       if (profileData.vehicleModel !== undefined) driverProfileDbUpdates.vehicle_model = profileData.vehicleModel;
       if (profileData.vehicleColor !== undefined) driverProfileDbUpdates.vehicle_color = profileData.vehicleColor;
@@ -204,6 +207,7 @@ export const profileService = {
       if (profileData.plateNumbers !== undefined) driverProfileDbUpdates.plate_numbers = profileData.plateNumbers;
       if (profileData.plateTypeChar !== undefined) driverProfileDbUpdates.plate_type_char = profileData.plateTypeChar;
       if (profileData.alertSoundPreference !== undefined) driverProfileDbUpdates.alert_sound_preference = profileData.alertSoundPreference;
+      if (profileData.alertSoundVolume !== undefined) driverProfileDbUpdates.alert_sound_volume = profileData.alertSoundVolume;
 
       const driverProfileFieldsToUpdate = Object.keys(driverProfileDbUpdates);
       

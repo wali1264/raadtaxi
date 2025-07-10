@@ -44,6 +44,7 @@ export interface Database {
       drivers_profile: {
         Row: {
           alert_sound_preference: string | null
+          alert_sound_volume: number | null
           created_at: string
           current_status: string | null
           plate_numbers: string | null
@@ -56,6 +57,7 @@ export interface Database {
         }
         Insert: {
           alert_sound_preference?: string | null
+          alert_sound_volume?: number | null
           created_at?: string
           current_status?: string | null
           plate_numbers?: string | null
@@ -68,6 +70,7 @@ export interface Database {
         }
         Update: {
           alert_sound_preference?: string | null
+          alert_sound_volume?: number | null
           created_at?: string
           current_status?: string | null
           plate_numbers?: string | null

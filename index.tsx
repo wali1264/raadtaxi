@@ -58,6 +58,18 @@ const globalStyles = `
     white-space: nowrap;
     text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
   }
+
+  .route-distance-label {
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: bold;
+    box-shadow: none;
+    white-space: nowrap;
+  }
 `;
 
 // Inject global styles into the <style> tag in index.html

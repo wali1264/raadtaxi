@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -23,6 +24,19 @@ interface DriverDashboardScreenProps {
 
 const PROXIMITY_THRESHOLD_KM = 0.1; // 100 meters
 const POPUP_TIMEOUT_SECONDS = 30; 
+const SILENT_AUDIO_DATA_URI = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+
+const notificationSoundBase64 = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSBvT18DAAAAAQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5enx9fn+AgYKDhIWGh4iJiouMjY6PkJGSj5OTlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v8AAQACAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0NHS09TV1tfa2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/AAUAAAADAAAAAAAAAAUAAAAAAAAABgAAAAQAAAAAAAAABwAAAAUAAAAAAAAACAAAAAYAAAAAAAAACQAAAAcAAAAAAAAACgAAAAgAAAAAAAAACwAAAAkAAAAAAAAADAAAAAoAAAAAAAAADQAAAAsAAAAAAAAADgAAAAwAAAAAAAAADwAAAA0AAAAAAAAAEAAAAA4AAAAAAAAAEQAAABAAAAAAAAAAEgAAABEAAAAAAAAAEwAAABIAAAAAAAAAFAAAABMAAAAAAAAABQAAABEAAAANAAAAAwAAAAcAAAANAAAAEwAAABcAAAAZAAAAGgAAABYAAAAQAAAADgAAAAgAAAADAAAAAwAAAAgAAAANAAAAEQAAABQAAAAVAAAAFQAAABQAAAARAAAADQAAAAcAAAADAAAAAwAAAAgAAAANAAAAEQAAABQAAAAVAAAAFQAAABQAAAARAAAADQAAAAgAAAAFAAAAAQAAAAQAAAALAAAAEQAAABUAAAAWAAAAFgAAABUAAAARAAAACwAAAAQAAAABAAAABQAAAAgAAAANAAAAEQAAABQAAAAVAAAAFQAAABQAAAARAAAADQAAAAgAAAAEAAAAAQAAAAYAAAAJAAAADAAAAA0AAAANAAAADAAAAAkAAAAEAAAAAgAAAAUAAAAHAAAACQAAAAsAAAALAAAACQAAAAcAAAAEAAAAAQAAAAMAAAAFAAAABgAAAAcAAAAIAAAACAAAAAcAAAAFAAAAAwAAAAIAAAACAAAAAwAAAAMAAAADAAAAAwAAAAMAAAACAAAAAgAAAAIAAAACAAAAAgAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABQ==';
+
+const soundMap: Record<string, string> = {
+    'default': notificationSoundBase64,
+    'chime': notificationSoundBase64,
+    'alert': notificationSoundBase64,
+    // Add legacy URLs here to map them to the reliable base64 sound for backward compatibility
+    'https://actions.google.com/sounds/v1/notifications/card_dismiss.ogg': notificationSoundBase64,
+    'https://actions.google.com/sounds/v1/notifications/notification_chime.ogg': notificationSoundBase64,
+    'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg': notificationSoundBase64
+};
 
 
 // --- Local Icon Components for New Header ---
@@ -108,24 +122,23 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
   const playNotificationSound = useCallback(() => {
     if (audioPlayerRef.current) {
-        const defaultSoundUrl = 'https://actions.google.com/sounds/v1/notifications/card_dismiss.ogg';
-        let soundFile = driverProfile.alertSoundPreference || defaultSoundUrl;
+        const preference = driverProfile.alertSoundPreference;
+        // Use the preference key to look up the sound data.
+        // If the key (or legacy URL) exists in the map, use it. Otherwise, use the 'default' sound.
+        const soundUrl = (preference && soundMap[preference]) ? soundMap[preference] : soundMap['default'];
 
-        if (soundFile.startsWith('custom:')) {
-            console.warn(`Custom sound selected (${soundFile}), playing default as custom file playback is not supported in this simulation.`);
-            soundFile = defaultSoundUrl;
-        }
-
-        if (soundFile.startsWith('http')) {
-            audioPlayerRef.current.src = soundFile;
-        } else {
-            // Fallback for legacy local file names that might be in the database
-            audioPlayerRef.current.src = `/assets/sounds/${soundFile.split('/').pop()}`;
-        }
+        audioPlayerRef.current.src = soundUrl;
         
-        audioPlayerRef.current.play().catch(e => console.error("Error playing sound:", e));
+        const volume = (driverProfile.alertSoundVolume !== undefined && driverProfile.alertSoundVolume !== null)
+            ? driverProfile.alertSoundVolume
+            : 0.8;
+        audioPlayerRef.current.volume = volume;
+
+        audioPlayerRef.current.play().catch(e => {
+            console.error(`Error playing sound: ${(e as Error).message}. This is often due to browser autoplay restrictions that require a user interaction.`);
+        });
     }
-  }, [driverProfile.alertSoundPreference]);
+  }, [driverProfile.alertSoundPreference, driverProfile.alertSoundVolume]);
 
   const clearMapTripElements = useCallback(() => {
     const map = mapInstanceRef.current;
@@ -447,7 +460,16 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         else alert("User ID not found. Cannot change status."); 
         return; 
     }
-    const newStatus = !isOnline; setIsOnline(newStatus); 
+    const newStatus = !isOnline;
+    
+    if (newStatus && audioPlayerRef.current) {
+        audioPlayerRef.current.src = SILENT_AUDIO_DATA_URI;
+        audioPlayerRef.current.play().catch(e => {
+            console.warn("Audio context unlock attempt info:", e.message);
+        });
+    }
+
+    setIsOnline(newStatus); 
     try { 
         await profileService.updateDriverOnlineStatus(loggedInUserId, newStatus); 
         if (newStatus && (!driverProfile.userId || driverProfile.userId !== loggedInUserId)) { 

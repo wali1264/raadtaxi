@@ -200,6 +200,7 @@ const faTranslations = {
   errorFetchingPassengerDetails: "خطا در دریافت اطلاعات مسافر.",
   notificationSoundSettingsTitle: "تنظیمات صدای هشدار",
   selectAlertSoundLabel: "انتخاب صدای هشدار",
+  alertVolumeLabel: "میزان صدای هشدار",
   uploadCustomSoundLabel: "آپلود صدای سفارشی",
   customSoundFileLabel: "فایل سفارشی: {filename}",
   noSoundSelected: "هیچ صدایی انتخاب نشده",
@@ -251,6 +252,7 @@ const faTranslations = {
   geminiApiError: "دریافت پیشنهاد با خطا مواجه شد. لطفاً بعداً تلاش کنید.",
   geminiSelectAsDestination: "انتخاب به عنوان مقصد",
   geminiTellUsMore: "دنبال چه چیزی می‌گردید؟",
+  distanceUnit: "کیلومتر",
 };
 
 export type TranslationSet = typeof faTranslations;
@@ -454,6 +456,7 @@ const psTranslations: TranslationSet = {
   errorFetchingPassengerDetails: "د مسافر معلوماتو په ترلاسه کولو کې تېروتنه.",
   notificationSoundSettingsTitle: "د خبرتیا غږ تنظیمات",
   selectAlertSoundLabel: "د خبرتیا غږ وټاکئ",
+  alertVolumeLabel: "د خبرتیا غږ کچه",
   uploadCustomSoundLabel: "خپل غږ پورته کړئ",
   customSoundFileLabel: "خپل فایل: {filename}",
   noSoundSelected: "هیڅ غږ نه دی ټاکل شوی",
@@ -505,6 +508,7 @@ const psTranslations: TranslationSet = {
   geminiApiError: "د وړاندیزونو په ترلاسه کولو کې پاتې راغلل. مهرباني وکړئ وروسته بیا هڅه وکړئ.",
   geminiSelectAsDestination: "د مقصد په توګه وټاکئ",
   geminiTellUsMore: "تاسو د څه شي په لټه کې یاست؟",
+  distanceUnit: "کیلومتره",
 };
 
 const enTranslations: TranslationSet = {
@@ -706,6 +710,7 @@ const enTranslations: TranslationSet = {
   errorFetchingPassengerDetails: "Error fetching passenger details.",
   notificationSoundSettingsTitle: "Notification Sound Settings",
   selectAlertSoundLabel: "Select Alert Sound",
+  alertVolumeLabel: "Alert Sound Volume",
   uploadCustomSoundLabel: "Upload Custom Sound",
   customSoundFileLabel: "Custom file: {filename}",
   noSoundSelected: "No sound selected",
@@ -757,6 +762,7 @@ const enTranslations: TranslationSet = {
   geminiApiError: "Could not get suggestions. Please try again later.",
   geminiSelectAsDestination: "Set as Destination",
   geminiTellUsMore: "What are you looking for?",
+  distanceUnit: "km",
 };
 
 export const translations: Record<Language, TranslationSet> = {

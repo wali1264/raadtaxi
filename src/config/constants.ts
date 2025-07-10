@@ -9,4 +9,4 @@ export const TRIP_STATUS_POLLING_INTERVAL_MS = 3000; // Poll for active trip sta
 export const PROXIMITY_THRESHOLD_KM = 0.1; // 100 meters for arrival checks
 
 // Fare Calculation
-export const MINIMUM_FARE = 20; // Minimum fare in AFN for any trip
+export const MINIMUM_FARE = 30; // Minimum fare in AFN for any trip

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, CSSProperties, useRef } from 'react';
-import { translations, Language } from '../translations';
+import { translations, Language, TranslationSet } from '../translations';
 import { DriverProfileData, PredefinedSound } from '../types';
 import { CloseIcon, UserCircleIcon, EditIcon } from '../components/icons';
 import { profileService } from '../services';
@@ -14,9 +14,9 @@ interface DriverProfileModalProps {
 }
 
 const predefinedSounds: PredefinedSound[] = [
-    { id: 'default', nameKey: 'predefinedSoundDefault', fileName: 'https://actions.google.com/sounds/v1/notifications/card_dismiss.ogg' },
-    { id: 'chime', nameKey: 'predefinedSoundChime', fileName: 'https://actions.google.com/sounds/v1/notifications/notification_chime.ogg' },
-    { id: 'alert', nameKey: 'predefinedSoundAlert', fileName: 'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg' },
+    { id: 'default', nameKey: 'predefinedSoundDefault', fileName: 'default' },
+    { id: 'chime', nameKey: 'predefinedSoundChime', fileName: 'chime' },
+    { id: 'alert', nameKey: 'predefinedSoundAlert', fileName: 'alert' },
 ];
 
 
@@ -33,7 +33,8 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
         plateRegion: '',
         plateNumbers: '',
         plateTypeChar: '',
-        alertSoundPreference: 'https://actions.google.com/sounds/v1/notifications/card_dismiss.ogg',
+        alertSoundPreference: 'default',
+        alertSoundVolume: 0.8,
     });
     const [initialProfileData, setInitialProfileData] = useState<Partial<DriverProfileData>>({});
     const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
@@ -49,6 +50,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
     const cameraInputRef = useRef<HTMLInputElement>(null);
     const [showChangePhotoOptions, setShowChangePhotoOptions] = useState(false);
     const customSoundInputRef = useRef<HTMLInputElement>(null);
+    
 
     useEffect(() => {
         if (isOpen && loggedInUserId) {
@@ -62,8 +64,14 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
                 try {
                     const fetchedData = await profileService.fetchDriverProfile(loggedInUserId);
                     
+                    // Convert legacy URLs to keys for UI consistency
+                    if (fetchedData.alertSoundPreference?.startsWith('http')) {
+                        fetchedData.alertSoundPreference = 'default'; // Map all legacy URLs to the default key
+                    }
+
                     setProfileData(fetchedData);
                     setInitialProfileData(fetchedData);
+
 
                     if (fetchedData.profilePicUrl) {
                        setImagePreviewUrl(fetchedData.profilePicUrl);
@@ -90,11 +98,17 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
             const fieldsToCompare: (keyof DriverProfileData)[] = [
                 'fullName', 'vehicleModel', 'vehicleColor', 
                 'plateRegion', 'plateNumbers', 'plateTypeChar',
-                'alertSoundPreference'
+                'alertSoundPreference', 'alertSoundVolume'
             ];
     
             for (const key of fieldsToCompare) {
-                if ((profileData[key] || '') !== (initialProfileData[key] || '')) {
+                const currentValue = profileData[key];
+                const initialValue = initialProfileData[key];
+                 if (key === 'alertSoundVolume') {
+                    if ((currentValue ?? 0.8) !== (initialValue ?? 0.8)) {
+                        return true;
+                    }
+                } else if ((currentValue || '') !== (initialValue || '')) {
                     return true;
                 }
             }
@@ -105,15 +119,18 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
 
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setProfileData(prev => ({ ...prev, [name]: value }));
+        const { name, value, type } = e.target;
+        const finalValue = type === 'range' ? parseFloat(value) : value;
         
-        if (name === 'alertSoundPreference' && !value.startsWith('custom:')) {
+        setProfileData(prev => ({ ...prev, [name]: finalValue }));
+        
+        if (name === 'alertSoundPreference' && typeof value === 'string' && !value.startsWith('custom:')) {
             setSelectedCustomSoundFile(null);
         }
         setSuccessMessage(null); 
         setError(null);
     };
+
 
     const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -178,15 +195,23 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
 
             const fieldsToCompare: (keyof Omit<DriverProfileData, 'userId'|'phoneNumber'|'profilePicUrl'>)[] = [
                 'fullName', 'vehicleModel', 'vehicleColor', 
-                'plateRegion', 'plateNumbers', 'plateTypeChar', 'alertSoundPreference'
+                'plateRegion', 'plateNumbers', 'plateTypeChar', 'alertSoundPreference', 'alertSoundVolume'
             ];
             
             fieldsToCompare.forEach(key => {
-                const currentValue = (profileData[key] || '').toString();
-                const initialValue = (initialProfileData[key] || '').toString();
+                const currentValue = profileData[key];
+                const initialValue = initialProfileData[key];
 
-                if (currentValue !== initialValue) {
-                  (dataToUpdate as any)[key] = profileData[key];
+                if (key === 'alertSoundVolume') {
+                    if ((currentValue ?? 0.8) !== (initialValue ?? 0.8)) {
+                         dataToUpdate.alertSoundVolume = currentValue as number | undefined;
+                    }
+                } else {
+                    const currentStringValue = currentValue as string | undefined;
+                    const initialStringValue = initialProfileData[key] as string | undefined;
+                    if ((currentStringValue || '') !== (initialStringValue || '')) {
+                        dataToUpdate[key] = currentStringValue;
+                    }
                 }
             });
     
@@ -269,9 +294,9 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
         textAlign: isRTL ? 'right': 'left',
     };
     
-    const currentSelectedSoundValue = profileData.alertSoundPreference?.startsWith('custom:') 
-                                  ? 'custom' 
-                                  : profileData.alertSoundPreference || 'https://actions.google.com/sounds/v1/notifications/card_dismiss.ogg';
+    const soundKey = profileData.alertSoundPreference || 'default';
+    const isKnownKey = predefinedSounds.some(s => s.fileName === soundKey);
+    const currentSelectedSoundValue = soundKey.startsWith('custom:') ? 'custom' : (isKnownKey ? soundKey : 'default');
 
     const renderProfileImage = () => {
         if (imagePreviewUrl) {
@@ -292,7 +317,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
 
                 {isLoading && <p style={{textAlign: 'center', margin: '2rem 0'}}>{t.loadingProfileData}</p>}
                 {error && !isLoading && <p style={errorMessageStyle}>{error}</p>}
-                {successMessage && !isLoading && <p style={successMessageStyle}>{successMessage}</p>}
+                {successMessage && !isLoading && !hasChanges && <p style={successMessageStyle}>{successMessage}</p>}
 
                 {!isLoading && (
                     <form onSubmit={handleSaveChanges}>
@@ -364,7 +389,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
                                         if (selectedValue === 'custom') {
                                             customSoundInputRef.current?.click();
                                         } else {
-                                            handleInputChange({ target: { name: 'alertSoundPreference', value: selectedValue } } as React.ChangeEvent<HTMLSelectElement>);
+                                            handleInputChange({ target: { name: 'alertSoundPreference', value: selectedValue, type: 'select-one' } } as React.ChangeEvent<HTMLSelectElement>);
                                         }
                                     }}
                                 >
@@ -388,6 +413,20 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({ isOpen, 
                                 {!selectedCustomSoundFile && profileData.alertSoundPreference?.startsWith('custom:') && (
                                     <p style={customSoundFilenameStyle}>{t.customSoundFileLabel.replace('{filename}', profileData.alertSoundPreference.substring(7))}</p>
                                 )}
+                            </div>
+                            <div style={inputGroupStyle}>
+                                <label htmlFor="alertVolume" style={labelStyle}>{t.alertVolumeLabel}</label>
+                                <input
+                                    type="range"
+                                    id="alertVolume"
+                                    name="alertSoundVolume"
+                                    min="0"
+                                    max="1"
+                                    step="0.1"
+                                    value={profileData.alertSoundVolume ?? 0.8}
+                                    onChange={handleInputChange}
+                                    style={{ width: '100%' }}
+                                />
                             </div>
                         </div>
 
