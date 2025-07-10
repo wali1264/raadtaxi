@@ -2,20 +2,10 @@
   "name": "gemini-ride-hailing-app-vercel",
   "version": "1.0.0",
   "private": true,
-  "dependencies": {
-    "@google/genai": "^1.8.0",
-    "@supabase/supabase-js": "^2.50.4",
-    "leaflet": "^1.9.4",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+  "scripts": {
+    "build": "esbuild index.tsx --bundle --outfile=dist/bundle.js --platform=browser --format=esm --jsx=automatic --external:react --external:react-dom/client --external:react/jsx-runtime --external:react-dom/server --external:leaflet --external:@supabase/supabase-js --external:@google/genai --define:process.env.API_KEY=\"'$API_KEY'\" && node scripts/prepare-html.js"
   },
   "devDependencies": {
-    "esbuild": "^0.20.2",
-    "@types/leaflet": "^1.9.12",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0"
-  },
-  "scripts": {
-    "build": "esbuild index.tsx --bundle --outfile=dist/bundle.js --platform=browser --format=esm --jsx=automatic --define:process.env.API_KEY=\"'$API_KEY'\" && node scripts/prepare-html.js"
+    "esbuild": "^0.20.2"
   }
 }
