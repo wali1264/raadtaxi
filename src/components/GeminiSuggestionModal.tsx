@@ -76,20 +76,14 @@ export const GeminiSuggestionModal: React.FC<GeminiSuggestionModalProps> = ({ cu
         try {
             const ai = new GoogleGenAI({apiKey: process.env.API_KEY as string});
             const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash-preview-04-17',
+              model: 'gemini-2.5-flash',
               contents: fullPrompt,
               config: {
                 responseMimeType: "application/json",
               }
             });
 
-            let jsonStr = response.text.trim();
-            const fenceRegex = /^```(\w*)?\s*\n?(.*?)\n?\s*```$/s;
-            const match = jsonStr.match(fenceRegex);
-            if (match && match[2]) {
-                jsonStr = match[2].trim();
-            }
-
+            const jsonStr = response.text.trim();
             const parsedData = JSON.parse(jsonStr);
             if (Array.isArray(parsedData)) {
                 setSuggestions(parsedData);
