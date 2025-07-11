@@ -1,10 +1,9 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { tripService, profileService } from '../services';
 import { useAppContext } from '../contexts/AppContext';
 import { RealtimeChannel } from '@supabase/supabase-js';
-import { DriverSearchState, TripPhase, TripSheetDisplayLevel, DriverDetails, AppService, RideStatus } from '../types';
+import { DriverSearchState, TripPhase, TripSheetDisplayLevel, DriverDetails, AppService, RideStatus, RideRequest } from '../types';
 import { getDebugMessage } from '../utils/helpers';
 import { PASSENGER_REQUEST_TIMEOUT_MS } from '../config/constants';
 
@@ -46,27 +45,41 @@ export const usePassengerTrip = () => {
         }
     }, []);
 
-    const handleDriverAssigned = useCallback(async (updatedRequest) => {
+    const resetTripState = useCallback(() => {
+        clearPassengerRequestTimeout();
+        if (rideRequestChannelRef.current) supabase.removeChannel(rideRequestChannelRef.current);
+        if (activeTripChannelRef.current) supabase.removeChannel(activeTripChannelRef.current);
+        
+        setDriverSearchState('idle');
+        setNotifiedDriverCount(0);
+        setCurrentRideRequestId(null);
+        setSelectedService(null);
+        setShowDriverSearchSheet(false);
+        setShowTripInProgressSheet(false);
+        setTripSheetDisplayLevel('default');
+        setCurrentTripFare(null);
+        setCurrentDriverDetails(null);
+        setTripPhase(null);
+        setEstimatedTimeToDestination(null);
+        setIsCancellationModalOpen(false);
+        setIsSubmittingCancellation(false);
+        setLastRequestArgs(null);
+    }, [clearPassengerRequestTimeout, supabase]);
+
+    const handleDriverAssigned = useCallback(async (updatedRequest: RideRequest) => {
         clearPassengerRequestTimeout();
         if (!updatedRequest.driver_id) return;
 
         try {
-            // Fetch user details (name, phone, pic) using the secure RPC function
             const userDetails = await profileService.fetchUserDetailsById(updatedRequest.driver_id);
-
-            // Fetch vehicle details directly, assuming RLS allows this for an active trip
             const { data: vehicleData, error: vehicleError } = await supabase
                 .from('drivers_profile')
-                .select('vehicle_model, vehicle_color, plate_region, plate_numbers, plate_type_char')
+                .select()
                 .eq('user_id', updatedRequest.driver_id)
                 .single();
                 
-            if (vehicleError) {
-                // Log the error but don't block the UI from showing what we have
-                console.error("Error fetching driver vehicle details:", getDebugMessage(vehicleError));
-            }
+            if (vehicleError) console.error("Error fetching driver vehicle details:", getDebugMessage(vehicleError));
 
-            // Combine the results into a single object for the UI
             const assignedDriverDetails: DriverDetails = {
                 name: userDetails?.fullName || `${t.roleDriver} ${updatedRequest.driver_id.substring(0, 6)}`,
                 serviceId: selectedService?.id || 'car',
@@ -84,7 +97,6 @@ export const usePassengerTrip = () => {
             setCurrentDriverDetails(assignedDriverDetails);
 
         } catch (error) {
-            // This will catch errors from fetchUserDetailsById if the RPC fails
             console.error("Error fetching full driver details:", getDebugMessage(error));
             const fallbackDetails: DriverDetails = { name: t.roleDriver, serviceId: 'car', vehicleModel: t.dataMissing, vehicleColor: t.dataMissing, plateParts: { region: 'N/A', numbers: t.dataMissing, type: '-' }, driverId: updatedRequest.driver_id, phoneNumber: t.dataMissing };
             setCurrentDriverDetails(fallbackDetails);
@@ -128,27 +140,6 @@ export const usePassengerTrip = () => {
         }
     }, [loggedInUserId, loggedInUserFullName]);
 
-    const resetTripState = useCallback(() => {
-        clearPassengerRequestTimeout();
-        if (rideRequestChannelRef.current) supabase.removeChannel(rideRequestChannelRef.current);
-        if (activeTripChannelRef.current) supabase.removeChannel(activeTripChannelRef.current);
-        
-        setDriverSearchState('idle');
-        setNotifiedDriverCount(0);
-        setCurrentRideRequestId(null);
-        setSelectedService(null);
-        setShowDriverSearchSheet(false);
-        setShowTripInProgressSheet(false);
-        setTripSheetDisplayLevel('default');
-        setCurrentTripFare(null);
-        setCurrentDriverDetails(null);
-        setTripPhase(null);
-        setEstimatedTimeToDestination(null);
-        setIsCancellationModalOpen(false);
-        setIsSubmittingCancellation(false);
-        setLastRequestArgs(null);
-    }, [clearPassengerRequestTimeout, supabase]);
-
     useEffect(() => {
         if (driverSearchState === 'awaiting_driver_acceptance' && currentRideRequestId) {
             passengerRequestTimeoutRef.current = window.setTimeout(async () => {
@@ -159,7 +150,7 @@ export const usePassengerTrip = () => {
             }, PASSENGER_REQUEST_TIMEOUT_MS);
 
             rideRequestChannelRef.current = supabase.channel(`ride_request_updates_${currentRideRequestId}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ride_requests', filter: `id=eq.${currentRideRequestId}` }, (payload) => {
-                const updatedRequest = payload.new;
+                const updatedRequest = payload.new as RideRequest;
                 if (updatedRequest.status === 'accepted' && updatedRequest.driver_id) {
                     handleDriverAssigned(updatedRequest);
                 } else if (['cancelled_by_driver', 'no_drivers_available'].includes(updatedRequest.status)) {
@@ -178,15 +169,19 @@ export const usePassengerTrip = () => {
     useEffect(() => {
         if (showTripInProgressSheet && currentRideRequestId) {
             activeTripChannelRef.current = supabase.channel(`active_trip_updates_${currentRideRequestId}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ride_requests', filter: `id=eq.${currentRideRequestId}` }, (payload) => {
-                const updatedTrip = payload.new;
+                const updatedTrip = payload.new as RideRequest;
                 if (updatedTrip.status === 'cancelled_by_driver') {
                     alert(t.tripCancelledByDriver);
                     resetTripState();
-                } else if (updatedTrip.status === 'trip_started') {
-                    setTripPhase('enRouteToDestination');
-                } else if (updatedTrip.status === 'trip_completed') {
+                } else if (updatedTrip.status === 'trip_completed' || updatedTrip.status === 'driver_at_destination') {
                     setTripPhase('arrivedAtDestination');
                     setCurrentTripFare(updatedTrip.actual_fare || updatedTrip.estimated_fare || null);
+                } else if (updatedTrip.status === 'trip_started') {
+                    setTripPhase('enRouteToDestination');
+                } else if (updatedTrip.driver_arrived_at_origin_at) {
+                    setTripPhase('atPickup');
+                } else if (updatedTrip.status === 'accepted') {
+                    setTripPhase('enRouteToOrigin');
                 }
             }).subscribe();
             
@@ -207,11 +202,14 @@ export const usePassengerTrip = () => {
                 await handleDriverAssigned(activeTrip);
                 
                 let recoveredTripPhase: TripPhase = 'enRouteToOrigin';
-                switch (activeTrip.status) {
-                    case 'trip_started': recoveredTripPhase = 'enRouteToDestination'; break;
-                    case 'driver_at_destination':
-                    case 'trip_completed': recoveredTripPhase = 'arrivedAtDestination'; break;
+                if (activeTrip.status === 'trip_completed' || activeTrip.status === 'driver_at_destination') {
+                    recoveredTripPhase = 'arrivedAtDestination';
+                } else if (activeTrip.status === 'trip_started') {
+                    recoveredTripPhase = 'enRouteToDestination';
+                } else if (activeTrip.driver_arrived_at_origin_at) {
+                    recoveredTripPhase = 'atPickup';
                 }
+                
                 setTripPhase(recoveredTripPhase);
                 setCurrentTripFare(activeTrip.actual_fare || activeTrip.estimated_fare || null);
                 setCurrentRideRequestId(activeTrip.id);

@@ -33,7 +33,7 @@ export const useAppServices = (currentLang: Language) => {
     try {
       const { data: dbServices, error } = await supabase
         .from('services')
-        .select('id, name_key, description_key, image_identifier, base_fare, price_per_km, price_per_minute, category, min_fare, is_active')
+        .select()
         .eq('is_active', true);
 
       if (error) {
@@ -51,7 +51,7 @@ export const useAppServices = (currentLang: Language) => {
       const tempAllServices: AppService[] = [];
       const categoriesMap: { [key: string]: AppService[] } = {};
 
-      (dbServices as DbService[]).forEach(dbService => {
+      dbServices?.forEach(dbService => {
         const imageComponent = serviceImageMap[dbService.image_identifier] || DefaultServiceIcon;
         
         const nameKeyCandidate = dbService.name_key;

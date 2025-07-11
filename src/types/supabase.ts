@@ -279,21 +279,21 @@ export interface Database {
         Row: {
           created_at: string
           id: string
-          location: unknown // geography type
+          location: string
           name: string
           user_id: string
         }
         Insert: {
           created_at?: string
           id?: string
-          location: unknown // geography type
+          location: string
           name: string
           user_id: string
         }
         Update: {
           created_at?: string
           id?: string
-          location?: unknown // geography type
+          location?: string
           name?: string
           user_id?: string
         }
@@ -340,14 +340,7 @@ export interface Database {
           role?: string | null
           updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "users_id_fkey"
-            columns: ["id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          }
-        ]
+        Relationships: []
       }
     }
     Views: {

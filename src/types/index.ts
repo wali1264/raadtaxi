@@ -1,4 +1,3 @@
-
 import React, { CSSProperties } from 'react';
 import { translations, TranslationSet } from '../translations';
 
@@ -99,7 +98,7 @@ export interface PassengerDetails {
   profilePicUrl?: string | null;
 }
 
-export type TripPhase = 'enRouteToOrigin' | 'enRouteToDestination' | 'arrivedAtDestination' | 'emergency' | null;
+export type TripPhase = 'enRouteToOrigin' | 'atPickup' | 'enRouteToDestination' | 'arrivedAtDestination' | 'emergency' | null;
 export type TripSheetDisplayLevel = 'peek' | 'default' | 'full';
 
 export type Screen = 'phoneInput' | 'pin' | 'map' | 'driverDashboard' | 'passengerProfile' | 'pendingApproval';
@@ -117,7 +116,7 @@ export interface DriverProfileData {
   plateNumbers: string; // e.g., "34567"
   plateTypeChar: string; // e.g., "ش"
   alertSoundPreference?: string; // e.g., "default_notification.mp3", "chime.mp3", "custom:my_sound.mp3"
-  alertSoundVolume?: number;
+  alertSoundVolume?: number; // Volume from 0.0 to 1.0
 }
 
 // PassengerProfileData can be a subset of User table fields + any specific passenger profile fields

@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
-import { AppService, DriverDetails, TripPhase, TripSheetDisplayLevel, DriverSearchState, UserRole, DestinationSuggestion, UserDefinedPlace } from '../types'; 
+import { AppService, DriverDetails, TripPhase, TripSheetDisplayLevel, DriverSearchState, UserRole, DestinationSuggestion, UserDefinedPlace, RideRequest } from '../types'; 
 import { debounce, getDistanceFromLatLonInKm, getDebugMessage, getCurrentLocation } from '../utils/helpers';
 import { ServiceSelectionSheet } from '../components/ServiceSelectionSheet';
 import { DriverSearchSheet } from '../components/DriverSearchSheet';
@@ -107,6 +108,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
   const [isCalculatingDistance, setIsCalculatingDistance] = useState<boolean>(false);
   const [distanceError, setDistanceError] = useState<string | null>(null);
+  const [routePolyline, setRoutePolyline] = useState<L.LatLngExpression[] | null>(null);
+  const routeLayerRef = useRef<L.LayerGroup | null>(null);
 
   const [originMapMarker, setOriginMapMarker] = useState<L.Marker | null>(null);
   const [destinationMapMarker, setDestinationMapMarker] = useState<L.Marker | null>(null);
@@ -238,6 +241,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         if (!poiLayerRef.current) { poiLayerRef.current = L.layerGroup().addTo(newMap); }
         if (!userPlacesLayerRef.current) { userPlacesLayerRef.current = L.layerGroup().addTo(newMap); }
         if (!suggestionMarkersLayerRef.current) { suggestionMarkersLayerRef.current = L.layerGroup().addTo(newMap); }
+        if (!routeLayerRef.current) { routeLayerRef.current = L.layerGroup().addTo(newMap); }
     } 
     return () => { mapInstanceRef.current?.remove(); mapInstanceRef.current = null; }; 
   }, [t.addressLoading]);
@@ -356,45 +360,63 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
+  
   useEffect(() => {
-    const map = mapInstanceRef.current; if (!map) return;
-    if (showTripInProgressSheet && confirmedOrigin) { if (!originMapMarker) { const originIconHTML = ReactDOMServer.renderToString(<LocationMarkerIcon color="#FFD700" style={{filter: 'drop-shadow(0px 0px 3px rgba(0,0,0,0.5))'}} />); const originIcon = L.divIcon({ html: originIconHTML, className: 'origin-trip-marker', iconSize: [40, 40], iconAnchor: [20, 40] }); const newOriginMarker = L.marker([confirmedOrigin.lat, confirmedOrigin.lng], { icon: originIcon }).addTo(map); setOriginMapMarker(newOriginMarker); } } else { if (originMapMarker && map.hasLayer(originMapMarker)) { map.removeLayer(originMapMarker); setOriginMapMarker(null); } }
-    if (showTripInProgressSheet && confirmedDestination) { if (!destinationMapMarker) { const destIconHTML = ReactDOMServer.renderToString(<DestinationMarkerIcon color="#000000" style={{filter: 'drop-shadow(0px 0px 3px rgba(0,0,0,0.5))'}} />); const destinationIcon = L.divIcon({ html: destIconHTML, className: 'destination-trip-marker', iconSize: [40, 40], iconAnchor: [20, 20] }); const newDestMarker = L.marker([confirmedDestination.lat, confirmedDestination.lng], { icon: destinationIcon }).addTo(map); setDestinationMapMarker(newDestMarker); } } else { if (destinationMapMarker && map.hasLayer(destinationMapMarker)) { map.removeLayer(destinationMapMarker); setDestinationMapMarker(null); } }
-  }, [showTripInProgressSheet, confirmedOrigin, confirmedDestination, mapInstanceRef.current]);
-
-  useEffect(() => {
-    const map = mapInstanceRef.current; if (!map) return; const driverId = currentDriverDetails?.driverId;
-    if (showTripInProgressSheet && driverId && confirmedOrigin) {
-      const initializeAndTrack = async () => {
-        let initialLatLng: L.LatLng | null = null;
-        try {
-          const locationData = await profileService.fetchDriverProfile(driverId);
-          initialLatLng = L.latLng(confirmedOrigin.lat, confirmedOrigin.lng);
-        } catch (e) { console.error("Exception fetching initial driver location:", e); initialLatLng = L.latLng(confirmedOrigin.lat, confirmedOrigin.lng); }
-        
-        if (initialLatLng) { if (!driverMarkerRef.current) { const carIconHTML = ReactDOMServer.renderToString(<DriverCarIcon />); const carIcon = L.divIcon({ html: carIconHTML, className: 'driver-car-icon', iconSize: [40, 40], iconAnchor: [20, 20] }); driverMarkerRef.current = L.marker(initialLatLng, { icon: carIcon, zIndexOffset: 1000, }).addTo(map); } else { driverMarkerRef.current.setLatLng(initialLatLng); } }
-        
-        if (driverLocationChannelRef.current) { supabase.removeChannel(driverLocationChannelRef.current); }
-        driverLocationChannelRef.current = supabase.channel(`driver_location_${driverId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'driver_locations', filter: `driver_id=eq.${driverId}` }, (payload) => {
-          const newLocation = payload.new as { latitude: number, longitude: number, heading?: number };
-          if (newLocation && driverMarkerRef.current) {
-            const newPos = L.latLng(newLocation.latitude, newLocation.longitude); driverMarkerRef.current.setLatLng(newPos);
-            const boundsToShowUpdate: L.LatLngExpression[] = [];
-            if (confirmedOrigin) boundsToShowUpdate.push(L.latLng(confirmedOrigin.lat, confirmedOrigin.lng));
-            if (confirmedDestination) boundsToShowUpdate.push(L.latLng(confirmedDestination.lat, confirmedDestination.lng));
-            boundsToShowUpdate.push(newPos);
-            if (map && boundsToShowUpdate.length >= 2) { map.fitBounds(L.latLngBounds(boundsToShowUpdate), { padding: [80, 80], maxZoom: 17, animate: true }); }
-          }
-        }).subscribe();
+    const map = mapInstanceRef.current;
+    const driverId = currentDriverDetails?.driverId;
+  
+    const cleanup = () => {
+      if (driverMarkerRef.current && map?.hasLayer(driverMarkerRef.current)) {
+        map.removeLayer(driverMarkerRef.current);
+        driverMarkerRef.current = null;
+      }
+      if (driverLocationChannelRef.current) {
+        supabase.removeChannel(driverLocationChannelRef.current);
+        driverLocationChannelRef.current = null;
+      }
+    };
+  
+    if (showTripInProgressSheet && driverId && map) {
+      const initializeDriverMarker = () => {
+        driverLocationChannelRef.current = supabase
+          .channel(`driver_location_${driverId}`)
+          .on('postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'driver_locations',
+              filter: `driver_id=eq.${driverId}`,
+            },
+            (payload) => {
+              const newLocation = payload.new as { latitude: number; longitude: number; heading?: number };
+              if (newLocation && map) {
+                const newLatLng = L.latLng(newLocation.latitude, newLocation.longitude);
+  
+                if (!driverMarkerRef.current) {
+                  const carIconHTML = ReactDOMServer.renderToString(<DriverCarIcon />);
+                  const carIcon = L.divIcon({ html: carIconHTML, className: 'driver-car-icon', iconSize: [40, 40], iconAnchor: [20, 20] });
+                  driverMarkerRef.current = L.marker(newLatLng, { icon: carIcon, zIndexOffset: 1000 }).addTo(map);
+                } else {
+                  driverMarkerRef.current.setLatLng(newLatLng);
+                }
+  
+                const userMarkerPosition = originMapMarker?.getLatLng();
+                if (userMarkerPosition) {
+                    const bounds = L.latLngBounds([userMarkerPosition, newLatLng]);
+                    map.fitBounds(bounds, { padding: [80, 80], maxZoom: 17, animate: true });
+                }
+              }
+            }
+          )
+          .subscribe();
       };
-      initializeAndTrack();
+  
+      initializeDriverMarker();
+      return cleanup;
     } else {
-        if (driverMarkerRef.current && map.hasLayer(driverMarkerRef.current)) { map.removeLayer(driverMarkerRef.current); driverMarkerRef.current = null; }
-        if (driverLocationChannelRef.current) { supabase.removeChannel(driverLocationChannelRef.current); driverLocationChannelRef.current = null; }
+      cleanup();
     }
-    return () => { if (driverMarkerRef.current && map?.hasLayer(driverMarkerRef.current)) { map.removeLayer(driverMarkerRef.current); driverMarkerRef.current = null; } if (driverLocationChannelRef.current) { supabase.removeChannel(driverLocationChannelRef.current); driverLocationChannelRef.current = null; } };
-  }, [ mapInstanceRef.current, showTripInProgressSheet, currentDriverDetails?.driverId, confirmedOrigin, confirmedDestination, tripPhase, supabase ]);
+  }, [showTripInProgressSheet, currentDriverDetails, mapInstanceRef.current]);
 
   useEffect(() => {
     const layer = suggestionMarkersLayerRef.current;
@@ -421,14 +443,127 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     try { const position = await getCurrentLocation(); const userLatLng: L.LatLngExpression = [position.coords.latitude, position.coords.longitude]; map.setView(userLatLng, 15); if (debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(map).catch(err => console.error("Debounced GPS click call failed:", getDebugMessage(err), err)); } } catch (error: any) { console.error("Error getting GPS location:", getDebugMessage(error), error); let message = ""; switch (error.code) { case 1: message = t.geolocationPermissionDenied; break; case 2: message = t.geolocationUnavailableHintVpnOrSignal; break; case 3: message = t.geolocationTimeout; break; default: message = t.geolocationNotSupported; break; } alert(message); }
   };
 
-  const calculateRouteDistance = async (origin: {lat: number, lng: number}, destination: {lat: number, lng: number}) => { setIsCalculatingDistance(true); setDistanceError(null); setRouteDistanceKm(null); try { 
-    const fetchOptions: RequestInit = { method: 'GET', mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' };
-    const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false`, fetchOptions); 
-    if (!response.ok) { throw new Error(`OSRM API error: ${response.status} ${response.statusText}`); } const data = await response.json(); if (data.routes && data.routes.length > 0 && data.routes[0].distance) { const distanceInKm = data.routes[0].distance / 1000; setRouteDistanceKm(distanceInKm); } else { throw new Error("No route found or distance missing in OSRM response."); } } catch (error) { console.error("Error calculating route distance:", error); setDistanceError(t.priceCalculationError); } finally { setIsCalculatingDistance(false); } };
+  const calculateRouteDistance = async (origin: {lat: number, lng: number}, destination: {lat: number, lng: number}) => {
+    setIsCalculatingDistance(true);
+    setDistanceError(null);
+    setRouteDistanceKm(null);
+    setRoutePolyline(null);
+    try {
+        const fetchOptions: RequestInit = { method: 'GET', mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' };
+        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=full&geometries=geojson`, fetchOptions);
+        if (!response.ok) { throw new Error(`OSRM API error: ${response.status} ${response.statusText}`); }
+        const data = await response.json();
+        if (data.routes && data.routes.length > 0) {
+            const route = data.routes[0];
+            if (route.distance) {
+                const distanceInKm = route.distance / 1000;
+                setRouteDistanceKm(distanceInKm);
+            } else {
+                throw new Error("Distance missing in OSRM response.");
+            }
+            if (route.geometry && route.geometry.coordinates) {
+                const leafletCoords = route.geometry.coordinates.map((coord: number[]) => [coord[1], coord[0]] as L.LatLngExpression);
+                setRoutePolyline(leafletCoords);
+            } else {
+                setRoutePolyline([[origin.lat, origin.lng], [destination.lat, destination.lng]]);
+            }
+        } else {
+            throw new Error("No route found in OSRM response.");
+        }
+    } catch (error) {
+        console.error("Error calculating route distance:", error);
+        setDistanceError(t.priceCalculationError);
+        setRoutePolyline([[origin.lat, origin.lng], [destination.lat, destination.lng]]);
+        setRouteDistanceKm(getDistanceFromLatLonInKm(origin.lat, origin.lng, destination.lat, destination.lng));
+    } finally {
+        setIsCalculatingDistance(false);
+    }
+  };
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const layerGroup = routeLayerRef.current;
+    if (!map || !layerGroup) return;
+
+    layerGroup.clearLayers();
+
+    if (routePolyline && routePolyline.length > 0) {
+        const polyline = L.polyline(routePolyline, {
+            color: '#4285F4',
+            weight: 5,
+            opacity: 0.8,
+        }).addTo(layerGroup);
+
+        const bottomPadding = window.innerHeight * 0.7;
+        const topPadding = 100;
+        map.fitBounds(polyline.getBounds(), { paddingTopLeft: [40, topPadding], paddingBottomRight: [40, bottomPadding] });
+
+        if (routeDistanceKm) {
+            const midIndex = Math.floor(routePolyline.length / 2);
+            const midPoint = routePolyline[midIndex];
+
+            if (midPoint) {
+                const distanceLabelHtml = ReactDOMServer.renderToString(
+                    <div>{`${routeDistanceKm.toFixed(1)} km`}</div>
+                );
+                const distanceIcon = L.divIcon({
+                    html: distanceLabelHtml,
+                    className: 'route-distance-label',
+                    iconAnchor: [30, 15],
+                });
+                L.marker(midPoint as L.LatLngTuple, { icon: distanceIcon, zIndexOffset: 200 }).addTo(layerGroup);
+            }
+        }
+    }
+  }, [routePolyline, routeDistanceKm]);
   
-  const handleConfirmOriginOrDestination = () => { if (isLoadingAddress || isSearching || !mapInstanceRef.current || !address || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) return; const currentMap = mapInstanceRef.current; const center = currentMap.getCenter(); const currentValidAddress = address; 
-  if (serviceFor === 'other') { if (!thirdPartyName.trim()) { setThirdPartyFormError(t.fullNameLabel + ' ' + (isRTL ? 'الزامی است' : 'is required')); return; } if (!/^07[0-9]{8}$/.test(thirdPartyPhone)) { setThirdPartyFormError(t.invalidPhoneError); return; } setThirdPartyFormError(''); }
-  if (selectionMode === 'origin') { setConfirmedOrigin({ lat: center.lat, lng: center.lng, address: currentValidAddress }); setSelectionMode('destination'); setSearchQuery(''); setUserInput(''); setAddress(''); setSearchError(''); if (debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(currentMap).catch(err => console.error("Update address for dest failed:", err)); } } else { const destDetails = { lat: center.lat, lng: center.lng, address: currentValidAddress }; setConfirmedDestination(destDetails); if(confirmedOrigin) { calculateRouteDistance( {lat: confirmedOrigin.lat, lng: confirmedOrigin.lng}, {lat: destDetails.lat, lng: destDetails.lng} ).finally(() => { setShowServiceSheet(true); }); } else { setDistanceError("Origin not confirmed."); setShowServiceSheet(true); } } };
+  const handleConfirmOriginOrDestination = () => { 
+      if (isLoadingAddress || isSearching || !mapInstanceRef.current || !address || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) return; 
+      const currentMap = mapInstanceRef.current; 
+      const center = currentMap.getCenter(); 
+      const currentValidAddress = address; 
+
+      if (serviceFor === 'other') { 
+          if (!thirdPartyName.trim()) { setThirdPartyFormError(t.fullNameLabel + ' ' + (isRTL ? 'الزامی است' : 'is required')); return; } 
+          if (!/^07[0-9]{8}$/.test(thirdPartyPhone)) { setThirdPartyFormError(t.invalidPhoneError); return; } 
+          setThirdPartyFormError(''); 
+      }
+      
+      if (selectionMode === 'origin') {
+          const originDetails = { lat: center.lat, lng: center.lng, address: currentValidAddress };
+          setConfirmedOrigin(originDetails);
+          const originIconHTML = ReactDOMServer.renderToString(<LocationMarkerIcon color="#007bff" ariaLabel={t.originMarkerAriaLabel}/>);
+          const originIcon = L.divIcon({ html: originIconHTML, className: 'origin-marker-static', iconSize: [40, 56], iconAnchor: [20, 56] });
+          const newOriginMarker = L.marker([originDetails.lat, originDetails.lng], { icon: originIcon }).addTo(currentMap);
+          setOriginMapMarker(newOriginMarker);
+          
+          setSelectionMode('destination'); 
+          setSearchQuery(''); 
+          setUserInput(''); 
+          setAddress(''); 
+          setSearchError(''); 
+          if (debouncedUpdateAddressRef.current) { 
+              debouncedUpdateAddressRef.current(currentMap).catch(err => console.error("Update address for dest failed:", err)); 
+          } 
+      } else { 
+          const destDetails = { lat: center.lat, lng: center.lng, address: currentValidAddress }; 
+          setConfirmedDestination(destDetails); 
+          const destIconHTML = ReactDOMServer.renderToString(<DestinationMarkerIcon color="#28a745" ariaLabel={t.destinationMarkerAriaLabel} />);
+          const destIcon = L.divIcon({ html: destIconHTML, className: 'destination-marker-static', iconSize: [40, 56], iconAnchor: [20, 56] });
+          const newDestMarker = L.marker([destDetails.lat, destDetails.lng], { icon: destIcon }).addTo(currentMap);
+          setDestinationMapMarker(newDestMarker);
+
+          if(confirmedOrigin) { 
+              calculateRouteDistance( {lat: confirmedOrigin.lat, lng: confirmedOrigin.lng}, {lat: destDetails.lat, lng: destDetails.lng} )
+                  .finally(() => { 
+                      setShowServiceSheet(true); 
+                  }); 
+          } else { 
+              setDistanceError("Origin not confirmed."); 
+              setShowServiceSheet(true); 
+          } 
+      } 
+  };
 
   useEffect(() => {
     if (loggedInUserId && allAppServices.length > 0) {
@@ -436,20 +571,109 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     }
   }, [loggedInUserId, allAppServices, tripActions.recoverTrip]);
 
-  const handleRequestRideFromSheet = (service: AppService, originAddressText: string, destinationAddressText: string, estimatedPrice: number | null) => { setShowServiceSheet(false); if (confirmedOrigin && confirmedDestination) { tripActions.startRideRequest(service, confirmedOrigin, confirmedDestination, estimatedPrice, serviceFor, thirdPartyName, thirdPartyPhone); } else { console.error("Origin or destination not confirmed for ride request."); alert(t.rideRequestCreationError + " (Origin/Dest missing)"); } };
+  const handleRequestRideFromSheet = (service: AppService, originAddressText: string, destinationAddressText: string, estimatedPrice: number | null) => { 
+      setShowServiceSheet(false); 
+      if (confirmedOrigin && confirmedDestination) { 
+          tripActions.startRideRequest(service, confirmedOrigin, confirmedDestination, estimatedPrice, serviceFor, thirdPartyName, thirdPartyPhone); 
+      } else { 
+          console.error("Origin or destination not confirmed for ride request."); 
+          alert(t.rideRequestCreationError + " (Origin/Dest missing)"); 
+      } 
+  };
   
   const resetToInitialMapState = () => {
+    const map = mapInstanceRef.current;
     tripActions.resetTripState();
-    setShowServiceSheet(false); setSelectionMode('origin'); setConfirmedOrigin(null); setConfirmedDestination(null); setSearchQuery(''); setUserInput(''); setAddress(''); setRouteDistanceKm(null); setIsCalculatingDistance(false); setDistanceError(null);
-    if (mapInstanceRef.current && debouncedUpdateAddressRef.current) { debouncedUpdateAddressRef.current(mapInstanceRef.current) .catch(err => console.error("Update address for new origin failed:", err)); }
+    setShowServiceSheet(false); 
+    setSelectionMode('origin'); 
+    setConfirmedOrigin(null); 
+    setConfirmedDestination(null); 
+    setSearchQuery(''); 
+    setUserInput(''); 
+    setAddress(''); 
+    setRouteDistanceKm(null); 
+    setIsCalculatingDistance(false); 
+    setDistanceError(null);
+    setRoutePolyline(null);
+    
+    if (map) {
+        if(originMapMarker && map.hasLayer(originMapMarker)) map.removeLayer(originMapMarker);
+        if(destinationMapMarker && map.hasLayer(destinationMapMarker)) map.removeLayer(destinationMapMarker);
+        if(routeLayerRef.current) routeLayerRef.current.clearLayers();
+    }
+    setOriginMapMarker(null);
+    setDestinationMapMarker(null);
+
+    if (map && debouncedUpdateAddressRef.current) { 
+        debouncedUpdateAddressRef.current(map).catch(err => console.error("Update address for new origin failed:", err)); 
+    }
   };
   
   const handleDestinationSuggested = (suggestion: DestinationSuggestion) => {
-    setShowSuggestionModal(false); setSuggestedDestinations([]); const destDetails = { lat: suggestion.latitude, lng: suggestion.longitude, address: suggestion.name }; setConfirmedDestination(destDetails); if (confirmedOrigin) { calculateRouteDistance({ lat: confirmedOrigin.lat, lng: confirmedOrigin.lng }, { lat: destDetails.lat, lng: destDetails.lng }).finally(() => { setShowServiceSheet(true); }); } else { setDistanceError("Origin not confirmed."); setShowServiceSheet(true); }
+    setShowSuggestionModal(false); setSuggestedDestinations([]);
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    
+    const destDetails = { lat: suggestion.latitude, lng: suggestion.longitude, address: suggestion.name }; 
+    setConfirmedDestination(destDetails); 
+    const destIconHTML = ReactDOMServer.renderToString(<DestinationMarkerIcon color="#28a745" />);
+    const destIcon = L.divIcon({ html: destIconHTML, className: 'destination-marker-static', iconSize: [40, 56], iconAnchor: [20, 56] });
+    const newDestMarker = L.marker([suggestion.latitude, suggestion.longitude], { icon: destIcon }).addTo(map);
+    setDestinationMapMarker(newDestMarker);
+
+    if (confirmedOrigin) { 
+        calculateRouteDistance({ lat: confirmedOrigin.lat, lng: confirmedOrigin.lng }, { lat: destDetails.lat, lng: destDetails.lng })
+            .finally(() => { setShowServiceSheet(true); }); 
+    } else { 
+        setDistanceError("Origin not confirmed."); 
+        setShowServiceSheet(true); 
+    }
   };
 
-  const handleGoBackToOriginSelection = () => { setSelectionMode('origin'); setSearchError(''); setShowServiceSheet(false); setRouteDistanceKm(null); setIsCalculatingDistance(false); setDistanceError(null); if (confirmedOrigin) { setAddress(confirmedOrigin.address); setSearchQuery(confirmedOrigin.address); if (mapInstanceRef.current) { mapInstanceRef.current.setView([confirmedOrigin.lat, confirmedOrigin.lng]); } } else if (mapInstanceRef.current && debouncedUpdateAddressRef.current) { setAddress(''); setSearchQuery(''); debouncedUpdateAddressRef.current(mapInstanceRef.current).catch(err => console.error("Update address on back failed:", err)); } };
-  const handleCloseServiceSheet = () => { setShowServiceSheet(false); if (confirmedDestination && mapInstanceRef.current) { mapInstanceRef.current.setView([confirmedDestination.lat, confirmedDestination.lng]); setAddress(confirmedDestination.address); setSearchQuery(confirmedDestination.address); setSelectionMode('destination'); setIsLoadingAddress(false); setSearchError(''); } };
+  const handleGoBackToOriginSelection = () => {
+      setSelectionMode('origin'); 
+      setConfirmedOrigin(null);
+      setConfirmedDestination(null);
+      setSearchError(''); 
+      setShowServiceSheet(false); 
+      setRouteDistanceKm(null); 
+      setIsCalculatingDistance(false); 
+      setDistanceError(null); 
+      setRoutePolyline(null); 
+      
+      const map = mapInstanceRef.current;
+      if (map) {
+          if (originMapMarker && map.hasLayer(originMapMarker)) map.removeLayer(originMapMarker);
+          if (destinationMapMarker && map.hasLayer(destinationMapMarker)) map.removeLayer(destinationMapMarker);
+          if (routeLayerRef.current) routeLayerRef.current.clearLayers();
+      }
+      setOriginMapMarker(null);
+      setDestinationMapMarker(null);
+      
+      if (map && debouncedUpdateAddressRef.current) { 
+          setAddress(''); 
+          setSearchQuery(''); 
+          debouncedUpdateAddressRef.current(map).catch(err => console.error("Update address on back failed:", err)); 
+      }
+  };
+  
+  const handleCloseServiceSheet = () => {
+    setShowServiceSheet(false);
+    if (routeLayerRef.current) routeLayerRef.current.clearLayers();
+    setRoutePolyline(null);
+
+    const map = mapInstanceRef.current;
+    if (map && confirmedOrigin && confirmedDestination) {
+        // The markers are already on the map, so just fit the bounds to see both.
+        const bounds = L.latLngBounds([
+            [confirmedOrigin.lat, confirmedOrigin.lng],
+            [confirmedDestination.lat, confirmedDestination.lng]
+        ]);
+        const bottomPadding = 300; // Keep space for the bottom panel which might reappear
+        map.fitBounds(bounds, { paddingTopLeft: [40, 40], paddingBottomRight: [40, bottomPadding] });
+    }
+  };
+  
   const toggleServiceDropdown = () => setIsServiceDropdownOpen(!isServiceDropdownOpen);
   const selectServiceType = (type: 'self' | 'other') => { setServiceFor(type); setIsServiceDropdownOpen(false); if (type === 'self') { setThirdPartyName(''); setThirdPartyPhone(''); setThirdPartyFormError(''); } };
   
@@ -467,7 +691,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
 
   const mapScreenContainerStyle: CSSProperties = { width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', backgroundColor: '#e0e0e0' };
   const leafletMapContainerStyle: CSSProperties = { width: '100%', height: '100%' };
-  const fixedMarkerStyle: CSSProperties = { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -100%)', zIndex: 1000, pointerEvents: 'none', display: (showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || !mapInstanceRef.current || showSuggestionModal) ? 'none' : 'block' };
+  const fixedMarkerStyle: CSSProperties = { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -100%)', zIndex: 1000, pointerEvents: 'none', display: (confirmedDestination || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || !mapInstanceRef.current || showSuggestionModal) ? 'none' : 'block' };
   const topControlsContainerStyle: CSSProperties = { position: 'absolute', top: '1rem', left: '1rem', right: '1rem', height: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1010, pointerEvents: 'none', gap: '0.5rem' };
   const topBarButtonStyle: CSSProperties = { backgroundColor: 'white', borderRadius: '50%', width: '2.75rem', height: '2.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', cursor: 'pointer', border: 'none', padding: 0, };
   const serviceTypePillContainerStyle: CSSProperties = { flexGrow: 1, display: 'flex', justifyContent: 'center', pointerEvents: 'none', visibility: (showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) ? 'hidden' : 'visible', };
@@ -477,12 +701,12 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const getGpsButtonBottom = () => {
     if (showServiceSheet) return 'calc(70vh + 1rem)';
     if (showDriverSearchSheet) return 'calc(250px + 1rem)';
-    if (showTripInProgressSheet) { if (tripSheetDisplayLevel === 'peek') return 'calc(80px + 1rem)'; if (tripSheetDisplayLevel === 'default') return 'calc(310px + 1rem)'; return 'calc(75vh + 1rem)'; }
+    if (showTripInProgressSheet) { if (tripSheetDisplayLevel === 'peek') return 'calc(120px + 1rem)'; if (tripSheetDisplayLevel === 'default') return 'calc(380px + 1rem)'; return 'calc(75vh + 1rem)'; }
     return '18rem';
   };
   const gpsButtonVisibilityLogic = (showServiceSheet || showDriverSearchSheet || showSuggestionModal || (showTripInProgressSheet && tripSheetDisplayLevel === 'full')) ? 'hidden' : 'visible';
   const gpsButtonStyle: CSSProperties = { position: 'absolute', bottom: getGpsButtonBottom(), [isRTL ? 'right' : 'left']: '1rem', backgroundColor: 'white', borderRadius: '50%', width: '3.25rem', height: '3.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', cursor: 'pointer', zIndex: 1000, border: 'none', transition: 'bottom 0.3s ease-out, visibility 0.3s ease-out', visibility: gpsButtonVisibilityLogic, };
-  const bottomPanelStyle: CSSProperties = { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'white', padding: '1rem 1.5rem 1.5rem', borderTopLeftRadius: '1rem', borderTopRightRadius: '1rem', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)', zIndex: 1000, display: 'flex', flexDirection: 'column', transform: (showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) ? 'translateY(100%)' : 'translateY(0)', visibility: (showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) ? 'hidden' : 'visible', transition: 'transform 0.3s ease-out, visibility 0.3s ease-out' };
+  const bottomPanelStyle: CSSProperties = { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'white', padding: '1rem 1.5rem 1.5rem', borderTopLeftRadius: '1rem', borderTopRightRadius: '1rem', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)', zIndex: 1000, display: 'flex', flexDirection: 'column', transform: (confirmedDestination || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) ? 'translateY(100%)' : 'translateY(0)', visibility: (confirmedDestination || showServiceSheet || showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) ? 'hidden' : 'visible', transition: 'transform 0.3s ease-out, visibility 0.3s ease-out' };
   const searchSectionStyle: CSSProperties = { position: 'relative' };
   const addressInputContainerStyle: CSSProperties = { display: 'flex', alignItems: 'center', backgroundColor: '#f0f0f0', borderRadius: '0.5rem', padding: isRTL ? '0.75rem 1rem 0.75rem 0.5rem' : '0.75rem 0.5rem 0.75rem 1rem' };
   const addressPointStyle: CSSProperties = { width: '10px', height: '10px', backgroundColor: selectionMode === 'origin' ? '#007bff' : '#28a745', borderRadius: selectionMode === 'origin' ? '50%' : '2px', [isRTL ? 'marginLeft' : 'marginRight']: '0.75rem', flexShrink: 0 };
@@ -509,11 +733,11 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
       </div>
       <div style={topControlsContainerStyle}>
         <div style={{ pointerEvents: 'auto' }}>
-          { (showDriverSearchSheet || showTripInProgressSheet) ? ( <button style={topBarButtonStyle} onClick={resetToInitialMapState} aria-label={t.closeDriverSearchSheetAriaLabel}> <CloseIcon /> </button> ) : (showServiceSheet || showSuggestionModal) ? ( <button style={topBarButtonStyle} onClick={() => { setShowServiceSheet(false); setShowSuggestionModal(false); setSuggestedDestinations([]); }} aria-label={t.closeSheetButtonAriaLabel}> <BackArrowIcon style={{transform: isRTL ? 'scaleX(-1)' : 'none'}}/> </button> ) : selectionMode === 'destination' ? ( <button style={topBarButtonStyle} onClick={handleGoBackToOriginSelection} aria-label={t.backButtonAriaLabel}> <BackArrowIcon style={{transform: isRTL ? 'scaleX(-1)' : 'none'}}/> </button> ) : ( <button style={topBarButtonStyle} aria-label={t.homeButtonAriaLabel}><HomeIcon /></button> )}
+          { (showDriverSearchSheet || showTripInProgressSheet) ? ( <button style={topBarButtonStyle} onClick={resetToInitialMapState} aria-label={t.closeDriverSearchSheetAriaLabel}> <CloseIcon /> </button> ) : (showServiceSheet || showSuggestionModal) ? ( <button style={topBarButtonStyle} onClick={() => { setShowServiceSheet(false); setShowSuggestionModal(false); setSuggestedDestinations([]); routeLayerRef.current?.clearLayers(); }} aria-label={t.closeSheetButtonAriaLabel}> <BackArrowIcon style={{transform: isRTL ? 'scaleX(-1)' : 'none'}}/> </button> ) : selectionMode === 'destination' ? ( <button style={topBarButtonStyle} onClick={handleGoBackToOriginSelection} aria-label={t.backButtonAriaLabel}> <BackArrowIcon style={{transform: isRTL ? 'scaleX(-1)' : 'none'}}/> </button> ) : ( <button style={topBarButtonStyle} aria-label={t.homeButtonAriaLabel}><HomeIcon /></button> )}
         </div>
         <div style={serviceTypePillContainerStyle}> {!(showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) && ( <div ref={serviceDropdownRef} style={{ position: 'relative', pointerEvents: 'auto' }}> <div style={serviceTypePillStyle} onClick={toggleServiceDropdown}> {serviceFor === 'self' ? t.serviceForSelf : t.serviceForOther} <ChevronDownIcon style={{ [isRTL ? 'marginRight' : 'marginLeft']: '0.5rem', transform: isServiceDropdownOpen ? 'rotate(180deg)' : '' }} /> </div> {isServiceDropdownOpen && ( <div style={serviceDropdownStyle}> <div style={serviceDropdownItemStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemStyle.backgroundColor!} onClick={() => selectServiceType('self')}>{t.serviceForSelf}</div> <div style={serviceDropdownItemStyle} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemHoverStyle.backgroundColor!} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = serviceDropdownItemStyle.backgroundColor!} onClick={() => selectServiceType('other')}>{t.serviceForOther}</div> </div> )} </div> )} </div>
         <div style={{ pointerEvents: 'auto', display: 'flex', gap: '0.5rem' }}>
-            {selectionMode === 'origin' && !showServiceSheet && !showTripInProgressSheet && !showDriverSearchSheet &&
+            {selectionMode === 'destination' && !showServiceSheet && !showTripInProgressSheet && !showDriverSearchSheet &&
                 <button style={topBarButtonStyle} aria-label={t.geminiSuggestButtonLabel} onClick={() => setShowSuggestionModal(true)}>
                     <GeminiSuggestIcon />
                 </button>

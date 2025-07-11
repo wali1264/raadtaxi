@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, CSSProperties, useCallback } from '
 import { translations, Language } from '../translations';
 import { AppService, DriverDetails, TripPhase, TripSheetDisplayLevel } from '../types';
 import { StarRating } from './StarRating';
-import { PhoneIcon, MessageBubbleIcon, EditLocationIcon, TagIcon, RideOptionsIcon, SafetyShieldIcon, CancelRideIcon, RightArrowIcon } from './icons';
+import { PhoneIcon, MessageBubbleIcon, EditLocationIcon, TagIcon, RideOptionsIcon, SafetyShieldIcon, CancelRideIcon, RightArrowIcon, CarIcon, ClockIcon } from './icons';
 
 interface TripInProgressSheetProps {
   currentLang: Language;
@@ -22,8 +22,8 @@ interface TripInProgressSheetProps {
 }
 
 // --- Constants for sheet heights and behavior ---
-const PEEK_HEIGHT = 48; // Height of the handle when minimized
-const DEFAULT_HEIGHT = 350; // Default open height
+const PEEK_HEIGHT = 120; // Height of the handle when minimized
+const DEFAULT_HEIGHT = 380; // Default open height
 const DRAG_THRESHOLD = 5; // Min pixels to count as a drag vs a tap
 
 export const TripInProgressSheet: React.FC<TripInProgressSheetProps> = ({
@@ -167,24 +167,31 @@ export const TripInProgressSheet: React.FC<TripInProgressSheetProps> = ({
 
   // --- STYLES ---
   const sheetStyle: CSSProperties = { position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopLeftRadius: '1.5rem', borderTopRightRadius: '1.5rem', boxShadow: '0 -4px 20px rgba(0,0,0,0.15)', paddingBottom: 'env(safe-area-inset-bottom)', display: 'flex', flexDirection: 'column', zIndex: 1250, direction: isRTL ? 'rtl' : 'ltr', height: currentSheetHeight, transition: 'height 0.3s ease-out', touchAction: 'none' };
-  const handleContainerStyle: CSSProperties = { padding: '0.75rem', cursor: tripPhase === 'arrivedAtDestination' ? 'default' : 'grab', flexShrink: 0, WebkitTapHighlightColor: 'transparent' };
-  const handleStyle: CSSProperties = { width: '40px', height: '4px', backgroundColor: '#ccc', borderRadius: '2px', margin: '0 auto' };
+  const handleContainerStyle: CSSProperties = { padding: '0.5rem', cursor: tripPhase === 'arrivedAtDestination' ? 'default' : 'grab', flexShrink: 0, WebkitTapHighlightColor: 'transparent', textAlign: 'center' };
+  const handleStyle: CSSProperties = { width: '40px', height: '4px', backgroundColor: '#ccc', borderRadius: '2px', margin: '0 auto', marginBottom: '0.5rem' };
   const contentContainerStyle: CSSProperties = { flexGrow: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' };
 
   // Styles for Default & Full View Content
   const infoContentContainerStyle: CSSProperties = {
       height: '100%',
       overflowY: 'auto',
-      opacity: displayLevel === 'peek' ? 0 : 1,
-      visibility: displayLevel === 'peek' ? 'hidden' : 'visible',
+      opacity: displayLevel === 'peek' && tripPhase !== 'arrivedAtDestination' ? 0 : 1,
+      visibility: displayLevel === 'peek' && tripPhase !== 'arrivedAtDestination' ? 'hidden' : 'visible',
       transition: 'opacity 0.2s, visibility 0.2s',
   };
+  const statusMessageStyle: CSSProperties = {
+    fontSize: '1.1rem',
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: '0.75rem',
+  };
   const defaultViewContainerStyle: CSSProperties = { padding: '0 1.5rem 1rem', display: 'flex', flexDirection: 'column' };
-  const vehicleInfoStyle: CSSProperties = { textAlign: 'center', fontSize: '1.1rem', fontWeight: 'bold', color: '#1F2937', padding: '0.25rem 0', marginBottom: '1.25rem', letterSpacing: '0.5px' };
   const driverAndPlateContainer: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' };
   const driverInfoContainer: CSSProperties = { display: 'flex', alignItems: 'center', gap: '0.75rem', flexDirection: isRTL ? 'row-reverse' : 'row' };
   const driverImageStyle: CSSProperties = { width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #e0e0e0' };
   const driverNameStyle: CSSProperties = { fontSize: '1.1rem', fontWeight: 600, color: '#333' };
+  const vehicleInfoStyle: CSSProperties = { fontSize: '0.9rem', color: '#666', marginTop: '0.1rem' };
+  
   const taxiNumberPlateStyle: CSSProperties = { border: '2px solid #4A5568', borderRadius: '0.375rem', padding: '0.25rem 0.75rem', backgroundColor: 'white', textAlign: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.1)' };
   const taxiNumberLabelStyle: CSSProperties = { fontSize: '0.65rem', color: '#4A5568', fontWeight: 'normal' };
   const taxiNumberValueStyle: CSSProperties = { fontSize: '1.1rem', fontWeight: 'bold', color: '#1F2937' };
@@ -213,6 +220,15 @@ export const TripInProgressSheet: React.FC<TripInProgressSheetProps> = ({
   const ratingSubmitButtonStyle: CSSProperties = { flex: 1, padding: '0.875rem', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '0.5rem', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', opacity: currentRating > 0 ? 1 : 0.6, transition: 'opacity 0.2s' };
   const ratingSkipButtonStyle: CSSProperties = { flex: 1, padding: '0.875rem', backgroundColor: '#e0e0e0', color: '#333', border: 'none', borderRadius: '0.5rem', fontSize: '1rem', fontWeight: '500', cursor: 'pointer' };
 
+  const getStatusMessage = () => {
+    switch (tripPhase) {
+      case 'enRouteToOrigin': return t.driverOnTheWay;
+      case 'atPickup': return t.driverArrivedAtPickup;
+      case 'enRouteToDestination': return t.tripHasStarted;
+      default: return '';
+    }
+  };
+
   return (
     <div style={sheetStyle} ref={sheetRef} role="dialog" aria-modal="true" aria-labelledby="trip-sheet-title">
       <div 
@@ -223,6 +239,11 @@ export const TripInProgressSheet: React.FC<TripInProgressSheetProps> = ({
         aria-label={t.pullUpForDetails}
       >
         <div style={handleStyle}></div>
+        {tripPhase !== 'arrivedAtDestination' && (
+            <div id="trip-sheet-title" style={statusMessageStyle}>
+                {getStatusMessage()}
+            </div>
+        )}
       </div>
 
       <div style={contentContainerStyle}>
@@ -248,11 +269,13 @@ export const TripInProgressSheet: React.FC<TripInProgressSheetProps> = ({
             // --- Default and Full View ---
             <div style={infoContentContainerStyle}>
                 <div style={defaultViewContainerStyle}>
-                    <div style={vehicleInfoStyle}>{driverDetails.vehicleModel} {driverDetails.vehicleColor}</div>
                     <div style={driverAndPlateContainer}>
                         <div style={driverInfoContainer}>
                             <img src={driverDetails.profilePicUrl || `https://ui-avatars.com/api/?name=${driverDetails.name.replace(' ', '+')}&background=random&size=128`} alt={driverDetails.name} style={driverImageStyle} />
-                            <h3 style={driverNameStyle}>{driverDetails.name}</h3>
+                            <div>
+                                <h3 style={driverNameStyle}>{driverDetails.name}</h3>
+                                <div style={vehicleInfoStyle}>{driverDetails.vehicleModel} {driverDetails.vehicleColor}</div>
+                            </div>
                         </div>
                         <div style={taxiNumberPlateStyle}>
                             <div style={taxiNumberLabelStyle}>{t.taxiNumberLabel}</div>

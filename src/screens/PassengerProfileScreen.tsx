@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, CSSProperties, useRef } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import { PassengerProfileData } from '../types';
@@ -154,9 +153,9 @@ export const PassengerProfileScreen: React.FC<PassengerProfileScreenProps> = ({ 
             
             const newProfileState = {
                 userId: loggedInUserId,
-                fullName: updatedUser.full_name || '',
+                fullName: (updatedUser as any).full_name || '',
                 phoneNumber: profileData.phoneNumber,
-                profilePicUrl: updatedUser.profile_pic_url || '',
+                profilePicUrl: (updatedUser as any).profile_pic_url || '',
             };
 
             setInitialProfileData(newProfileState);

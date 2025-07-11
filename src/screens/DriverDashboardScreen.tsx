@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -338,13 +337,13 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
           const { latitude, longitude, heading } = position.coords;
           setDriverLocation({ lat: latitude, lng: longitude });
           try {
-            await supabase.from('driver_locations').upsert({
+            await supabase.from('driver_locations').upsert([{
                 driver_id: loggedInUserId,
                 latitude: latitude,
                 longitude: longitude,
                 heading: heading,
                 timestamp: new Date().toISOString(),
-            }, { onConflict: 'driver_id' });
+            }] as any, { onConflict: 'driver_id' });
 
             if (actualDriverGpsMarker.current) {
                 actualDriverGpsMarker.current.setLatLng([latitude, longitude]);
@@ -373,7 +372,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       const { data, error } = await supabase.from('ride_requests').select(RIDE_REQUEST_COLUMNS).eq('status', 'pending').is('driver_id', null); 
       if (error) { console.error('[DriverDashboard] Error fetching all pending requests:', getDebugMessage(error), error); setFetchError(t.errorFetchingRequests); setAllPendingRequests([]); }
       else { 
-          const nonDeclinedRequests = (data as RideRequest[]).filter(
+          const nonDeclinedRequests = (data as unknown as RideRequest[]).filter(
               req => !timedOutOrDeclinedRequests.some(declined => declined.id === req.id)
           );
           setAllPendingRequests(nonDeclinedRequests);
