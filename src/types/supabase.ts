@@ -90,6 +90,34 @@ export interface Database {
           }
         ]
       }
+      push_subscriptions: {
+        Row: {
+          id: string
+          user_id: string
+          subscription: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          subscription: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          subscription?: Json
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       ride_cancellations: {
         Row: {
           cancelled_by_user_id: string
@@ -356,7 +384,7 @@ export interface Database {
           location_text: string
           user_id: string
         }[]
-      }
+      },
       get_trip_counterpart_details: {
         Args: {
           user_id_to_fetch: string
@@ -367,13 +395,13 @@ export interface Database {
           phone_number: string
           profile_pic_url: string
         }
-      }
+      },
       get_user_role_by_phone: {
         Args: {
           p_phone_number: string
         }
         Returns: string
-      }
+      },
       search_user_places_by_name: {
           Args: {
               search_query: string

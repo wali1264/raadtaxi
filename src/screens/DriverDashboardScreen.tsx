@@ -12,7 +12,7 @@ import { CancellationModal } from '../components/CancellationModal';
 import { AddPlaceModal } from '../components/AddPlaceModal';
 import { ListIcon, CarIcon, GpsIcon, LocationMarkerIcon, DestinationMarkerIcon, ProfileIcon, DriverCarIcon, HourglassIcon, AddLocationIcon, UserPlaceMarkerIcon } from '../components/icons';
 import { AppContext, useAppContext } from '../contexts/AppContext';
-import { profileService, tripService } from '../services';
+import { profileService, tripService, notificationService } from '../services';
 import { getDebugMessage, getDistanceFromLatLonInKm, getCurrentLocation } from '../utils/helpers';
 import { useUserDefinedPlaces } from '../hooks/useUserDefinedPlaces';
 
@@ -118,6 +118,18 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const userPlaceMarkersRef = useRef<L.Marker[]>([]);
 
   const { userDefinedPlaces, refetch: refetchUserPlaces } = useUserDefinedPlaces();
+
+  useEffect(() => {
+    const handleSubscription = async () => {
+        if (isOnline && isUserVerified && loggedInUserId) {
+            if (Notification.permission !== 'denied') {
+                await notificationService.subscribeUser(loggedInUserId);
+            }
+        }
+    };
+
+    handleSubscription();
+  }, [isOnline, loggedInUserId, isUserVerified]);
 
   const playNotificationSound = useCallback(() => {
     if (audioPlayerRef.current) {
