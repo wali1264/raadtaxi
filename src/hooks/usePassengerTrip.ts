@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { tripService, profileService } from '../services';
 import { useAppContext } from '../contexts/AppContext';
-import { RealtimeChannel } from '@supabase/supabase-js';
+import { RealtimeChannel, PostgrestMaybeSingleResponse } from '@supabase/supabase-js';
 import { DriverSearchState, TripPhase, TripSheetDisplayLevel, DriverDetails, AppService, RideStatus, RideRequest } from '../types';
 import { getDebugMessage } from '../utils/helpers';
 import { PASSENGER_REQUEST_TIMEOUT_MS } from '../config/constants';
+import { Database } from '../types/supabase';
 
 export const usePassengerTrip = () => {
     const { loggedInUserId, loggedInUserFullName, t, allAppServices } = useAppContext();
@@ -64,7 +65,7 @@ export const usePassengerTrip = () => {
         setIsCancellationModalOpen(false);
         setIsSubmittingCancellation(false);
         setLastRequestArgs(null);
-    }, [clearPassengerRequestTimeout]);
+    }, [clearPassengerRequestTimeout, supabase]);
 
     const handleDriverAssigned = useCallback(async (updatedRequest: RideRequest) => {
         clearPassengerRequestTimeout();
@@ -72,13 +73,15 @@ export const usePassengerTrip = () => {
 
         try {
             const userDetails = await profileService.fetchUserDetailsById(updatedRequest.driver_id);
-            const { data: vehicleData, error: vehicleError } = await supabase
+            const { data, error: vehicleError }: PostgrestMaybeSingleResponse<Database['public']['Tables']['drivers_profile']['Row']> = await supabase
                 .from('drivers_profile')
-                .select('*')
+                .select()
                 .eq('user_id', updatedRequest.driver_id)
                 .single();
+            
+            const vehicleData = data;
                 
-            if (vehicleError) console.error("Error fetching driver vehicle details:", getDebugMessage(vehicleError));
+            if (vehicleError && vehicleError.code !== 'PGRST116') console.error("Error fetching driver vehicle details:", getDebugMessage(vehicleError));
 
             const assignedDriverDetails: DriverDetails = {
                 name: userDetails?.fullName || `${t.roleDriver} ${updatedRequest.driver_id.substring(0, 6)}`,
@@ -112,16 +115,16 @@ export const usePassengerTrip = () => {
             supabase.removeChannel(rideRequestChannelRef.current);
             rideRequestChannelRef.current = null;
         }
-    }, [clearPassengerRequestTimeout, selectedService, t]);
+    }, [clearPassengerRequestTimeout, selectedService, t, supabase]);
 
-    const startRideRequest = useCallback(async (service: AppService, origin: any, dest: any, price: number | null, serviceFor: 'self' | 'other', thirdPartyName: string, thirdPartyPhone: string) => {
+    const startRideRequest = useCallback(async (service, origin, dest, price, serviceFor, thirdPartyName, thirdPartyPhone) => {
         if (!loggedInUserId) {
             console.error("User not logged in. Cannot create ride request.");
             setDriverSearchState('noDriverFound');
             return;
         }
         
-        const rideRequestPayload = { passenger_id: loggedInUserId, passenger_name: serviceFor === 'self' ? loggedInUserFullName : thirdPartyName.trim(), passenger_phone: serviceFor === 'self' ? null : thirdPartyPhone, is_third_party: serviceFor === 'other', origin_address: origin.address, origin_lat: origin.lat, origin_lng: origin.lng, destination_address: dest.address, destination_lat: dest.lat, destination_lng: dest.lng, service_id: service.id, estimated_fare: price, status: 'pending' as RideStatus };
+        const rideRequestPayload: Omit<RideRequest, 'id' | 'created_at' | 'updated_at'> = { passenger_id: loggedInUserId, passenger_name: serviceFor === 'self' ? loggedInUserFullName : thirdPartyName.trim(), passenger_phone: serviceFor === 'self' ? null : thirdPartyPhone, is_third_party: serviceFor === 'other', origin_address: origin.address, origin_lat: origin.lat, origin_lng: origin.lng, destination_address: dest.address, destination_lat: dest.lat, destination_lng: dest.lng, service_id: service.id, estimated_fare: price, status: 'pending' as RideStatus, driver_id: null, accepted_at: null, driver_arrived_at_destination_at: null, driver_arrived_at_origin_at: null, actual_fare: null, route_to_destination_polyline: null, route_to_origin_polyline: null, trip_started_at: null};
 
         setDriverSearchState('searching');
         setShowDriverSearchSheet(true);
@@ -164,7 +167,7 @@ export const usePassengerTrip = () => {
                 if (rideRequestChannelRef.current) supabase.removeChannel(rideRequestChannelRef.current);
             };
         }
-    }, [driverSearchState, currentRideRequestId, handleDriverAssigned, clearPassengerRequestTimeout]);
+    }, [driverSearchState, currentRideRequestId, supabase, handleDriverAssigned, clearPassengerRequestTimeout]);
 
     useEffect(() => {
         if (showTripInProgressSheet && currentRideRequestId) {
@@ -189,7 +192,7 @@ export const usePassengerTrip = () => {
                 if (activeTripChannelRef.current) supabase.removeChannel(activeTripChannelRef.current);
             };
         }
-    }, [showTripInProgressSheet, currentRideRequestId, t.tripCancelledByDriver, resetTripState]);
+    }, [showTripInProgressSheet, currentRideRequestId, supabase, t.tripCancelledByDriver, resetTripState]);
     
     const recoverTrip = useCallback(async () => {
         if (!loggedInUserId || showTripInProgressSheet || showDriverSearchSheet) return;

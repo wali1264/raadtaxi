@@ -1,7 +1,6 @@
 import { supabase } from './supabase';
 import { getDebugMessage } from '../utils/helpers';
 import { Database } from '../types/supabase';
-import { Json } from '../types/supabase';
 
 // This is a public key, safe to be exposed on the client.
 const VAPID_PUBLIC_KEY = 'BL1_3Yq81F_yFm9Q4PLOUvA7U0m1dK2H8U91e1i_M3oA6KzXN1JqV2K2F-hZ7X3S4W1J8C6I0J1o8s';
@@ -74,9 +73,9 @@ export const notificationService = {
                 console.log('Saving new push subscription to DB.');
                 const payload: Database['public']['Tables']['push_subscriptions']['Insert'] = {
                     user_id: userId,
-                    subscription: subJSON as unknown as Json,
+                    subscription: subJSON as any,
                 };
-                const { error: insertError } = await supabase.from('push_subscriptions').insert(payload as any);
+                const { error: insertError } = await supabase.from('push_subscriptions').insert([payload] as any);
                 if (insertError) {
                     console.error("Error saving push subscription:", getDebugMessage(insertError));
                 }

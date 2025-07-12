@@ -2,7 +2,7 @@ import React, { CSSProperties } from 'react';
 
 export const LocationMarkerIcon = ({ style, ariaLabel, color = "#007bff" }: { style?: CSSProperties, ariaLabel?: string, color?: string }) => (
   <svg 
-    style={{ width: '100%', height: '100%', ...style }}
+    style={{ width: '2.5rem', height: '3.5rem', ...style }}
     viewBox="0 0 32 42"
     fill="none" 
     xmlns="http://www.w3.org/2000/svg" 
