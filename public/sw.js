@@ -1,4 +1,3 @@
-
 const CACHE_NAME = 'buraq-cache-v2'; // Increment version on change
 const urlsToCache = [
   '/',
@@ -64,31 +63,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(event.request.url);
 
-  // Strategy for API calls: Network-Only.
-  // This ensures that we always try to get the freshest data for API requests.
+  // Network-only for API calls
   if (networkOnlyUrls.some(url => requestUrl.href.startsWith(url))) {
-    event.respondWith(
-      // Simply fetch the request from the network.
-      // We add a .catch() to handle cases where the network is unavailable.
-      fetch(event.request)
-        .catch(error => {
-          // The fetch failed, likely due to a network error.
-          // This could be because the user is offline.
-          // We must return a Response object to fulfill the event.
-          console.error('Service Worker: Fetch failed for network-only resource:', event.request.url, error);
-          // Return a synthetic error response. The client-side code will see this as a failed request.
-          return new Response(JSON.stringify({ message: 'Network error: The service worker could not connect to the network.' }), {
-            status: 503,
-            statusText: 'Service Unavailable',
-            headers: { 'Content-Type': 'application/json' }
-          });
-        })
-    );
+    event.respondWith(fetch(event.request));
     return;
   }
 
-  // Strategy for App Shell (Stale-While-Revalidate).
-  // This serves assets from the cache first for speed, then updates the cache from the network.
+  // Stale-while-revalidate for app shell resources
   event.respondWith(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.match(event.request).then((cachedResponse) => {
@@ -100,8 +81,7 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         });
 
-        // Return cached response immediately if available, otherwise wait for the network.
-        // The network fetch will happen in the background to update the cache.
+        // Return cached response immediately, and update cache in background
         return cachedResponse || fetchPromise;
       });
     })

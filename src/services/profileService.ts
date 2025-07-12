@@ -42,17 +42,13 @@ export const profileService = {
       };
     const { data, error } = await supabase
       .from('users')
-      .insert([payload] as any)
+      .insert(payload as any)
       .select('id, full_name, role, profile_pic_url, is_verified, phone_number') 
       .single();
 
     if (error) {
       console.error("ProfileService: Error creating user in public table -", getDebugMessage(error), error);
       throw error;
-    }
-
-    if (!data) {
-        throw new Error("User creation did not return data.");
     }
     
     return {
@@ -131,7 +127,7 @@ export const profileService = {
     const payload: Database['public']['Tables']['drivers_profile']['Insert'] = { user_id: userId, current_status: 'offline', alert_sound_preference: DEFAULT_SOUND_KEY, alert_sound_volume: DEFAULT_SOUND_VOLUME };
     const { error } = await supabase
       .from('drivers_profile')
-      .insert([payload] as any); 
+      .insert(payload as any); 
     if (error) {
       console.error("ProfileService: Error creating driver profile entry -", getDebugMessage(error), error);
       throw error;
@@ -156,7 +152,7 @@ export const profileService = {
     
     const { data: driverProfileData, error: driverProfileError } = await supabase
         .from('drivers_profile')
-        .select()
+        .select('*')
         .eq('user_id', userId)
         .single();
 
@@ -181,7 +177,7 @@ export const profileService = {
   },
 
   async updateDriverProfile(userId: string, profileData: Partial<DriverProfileData>): Promise<boolean> {
-      const userUpdates: Database['public']['Tables']['users']['Update'] = { updated_at: new Date().toISOString() };
+      const userUpdates: Partial<Database['public']['Tables']['users']['Update']> = { updated_at: new Date().toISOString() };
       let userNeedsUpdate = false;
 
       if (profileData.fullName !== undefined) {
@@ -205,7 +201,7 @@ export const profileService = {
           }
       }
       
-      const driverProfileDbUpdates: Partial<Database['public']['Tables']['drivers_profile']['Update']> = { user_id: userId };
+      const driverProfileDbUpdates: Partial<Database['public']['Tables']['drivers_profile']['Insert']> = { user_id: userId };
       
       if (profileData.vehicleModel !== undefined) driverProfileDbUpdates.vehicle_model = profileData.vehicleModel;
       if (profileData.vehicleColor !== undefined) driverProfileDbUpdates.vehicle_color = profileData.vehicleColor;
@@ -218,7 +214,7 @@ export const profileService = {
         driverProfileDbUpdates.updated_at = new Date().toISOString();
         const { error: driverProfileUpsertError } = await supabase
             .from('drivers_profile')
-            .upsert([driverProfileDbUpdates] as any, { onConflict: 'user_id' });
+            .upsert(driverProfileDbUpdates as any, { onConflict: 'user_id' });
 
         if (driverProfileUpsertError) {
             console.error("ProfileService: Error upserting driver_profile -", getDebugMessage(driverProfileUpsertError), driverProfileUpsertError);
@@ -230,14 +226,14 @@ export const profileService = {
 
   async updateDriverOnlineStatus(userId: string, isOnline: boolean) {
     const status = isOnline ? 'online' : 'offline';
-    const payload: Database['public']['Tables']['drivers_profile']['Update'] = { 
-        user_id: userId, 
-        current_status: status, 
-        updated_at: new Date().toISOString() 
-      };
+    const payload: Database['public']['Tables']['drivers_profile']['Insert'] = { 
+      user_id: userId, 
+      current_status: status, 
+      updated_at: new Date().toISOString() 
+    };
     const { error } = await supabase
       .from('drivers_profile')
-      .upsert([payload] as any,
+      .upsert(payload as any,
         { onConflict: 'user_id' }
       );
 
@@ -304,7 +300,7 @@ export const profileService = {
         location: `POINT(${lng} ${lat})`,
         user_id: userId
     };
-    const { error } = await supabase.from('user_defined_places').insert([payload] as any);
+    const { error } = await supabase.from('user_defined_places').insert(payload as any);
 
     if (error) {
         console.error("ProfileService: Error adding user-defined place -", getDebugMessage(error), error);
