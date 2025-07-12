@@ -31,9 +31,7 @@ interface RpcPlace {
 
 export const profileService = {
   async createUserInPublicTable(details: { userId: string, phoneNumber: string, role: UserRole, fullName: string, currentLang: Language }) {
-    const { data, error } = await supabase
-      .from('users')
-      .insert([{
+    const payload: Database['public']['Tables']['users']['Insert'] = {
         id: details.userId,
         phone_number: details.phoneNumber,
         role: details.role,
@@ -41,13 +39,20 @@ export const profileService = {
         current_language: details.currentLang,
         profile_pic_url: '', 
         is_verified: true, 
-      }])
+      };
+    const { data, error } = await supabase
+      .from('users')
+      .insert([payload] as any)
       .select('id, full_name, role, profile_pic_url, is_verified, phone_number') 
       .single();
 
     if (error) {
       console.error("ProfileService: Error creating user in public table -", getDebugMessage(error), error);
       throw error;
+    }
+
+    if (!data) {
+        throw new Error("User creation did not return data.");
     }
     
     return {
@@ -60,11 +65,11 @@ export const profileService = {
   },
 
   async updateUser(userId: string, updates: { role?: UserRole, full_name?: string, profile_pic_url?: string | null }) {
-    const updatePayload = { ...updates, updated_at: new Date().toISOString() };
+    const updatePayload: Database['public']['Tables']['users']['Update'] = { ...updates, updated_at: new Date().toISOString() };
     
     const { data, error } = await supabase
       .from('users')
-      .update(updatePayload)
+      .update(updatePayload as any)
       .eq('id', userId)
       .select('id, full_name, role, profile_pic_url, is_verified') 
       .single();
@@ -123,9 +128,10 @@ export const profileService = {
   },
 
   async createDriverProfileEntry(userId: string) {
+    const payload: Database['public']['Tables']['drivers_profile']['Insert'] = { user_id: userId, current_status: 'offline', alert_sound_preference: DEFAULT_SOUND_KEY, alert_sound_volume: DEFAULT_SOUND_VOLUME };
     const { error } = await supabase
       .from('drivers_profile')
-      .insert([{ user_id: userId, current_status: 'offline', alert_sound_preference: DEFAULT_SOUND_KEY, alert_sound_volume: DEFAULT_SOUND_VOLUME }]); 
+      .insert([payload] as any); 
     if (error) {
       console.error("ProfileService: Error creating driver profile entry -", getDebugMessage(error), error);
       throw error;
@@ -175,7 +181,7 @@ export const profileService = {
   },
 
   async updateDriverProfile(userId: string, profileData: Partial<DriverProfileData>): Promise<boolean> {
-      const userUpdates: Partial<Database['public']['Tables']['users']['Update']> = { updated_at: new Date().toISOString() };
+      const userUpdates: Database['public']['Tables']['users']['Update'] = { updated_at: new Date().toISOString() };
       let userNeedsUpdate = false;
 
       if (profileData.fullName !== undefined) {
@@ -191,7 +197,7 @@ export const profileService = {
       if (userNeedsUpdate) {
           const { error: userUpdateError } = await supabase
               .from('users')
-              .update(userUpdates)
+              .update(userUpdates as any)
               .eq('id', userId);
           if (userUpdateError) {
               console.error("ProfileService: Error updating user's full_name/profile_pic_url (for driver) -", getDebugMessage(userUpdateError), userUpdateError);
@@ -212,7 +218,7 @@ export const profileService = {
         driverProfileDbUpdates.updated_at = new Date().toISOString();
         const { error: driverProfileUpsertError } = await supabase
             .from('drivers_profile')
-            .upsert(driverProfileDbUpdates, { onConflict: 'user_id' });
+            .upsert([driverProfileDbUpdates] as any, { onConflict: 'user_id' });
 
         if (driverProfileUpsertError) {
             console.error("ProfileService: Error upserting driver_profile -", getDebugMessage(driverProfileUpsertError), driverProfileUpsertError);
@@ -224,14 +230,14 @@ export const profileService = {
 
   async updateDriverOnlineStatus(userId: string, isOnline: boolean) {
     const status = isOnline ? 'online' : 'offline';
+    const payload: Database['public']['Tables']['drivers_profile']['Update'] = { 
+        user_id: userId, 
+        current_status: status, 
+        updated_at: new Date().toISOString() 
+      };
     const { error } = await supabase
       .from('drivers_profile')
-      .upsert(
-        { 
-          user_id: userId, 
-          current_status: status, 
-          updated_at: new Date().toISOString() 
-        },
+      .upsert([payload] as any,
         { onConflict: 'user_id' }
       );
 
@@ -293,11 +299,12 @@ export const profileService = {
   },
 
   async addUserDefinedPlace(name: string, lat: number, lng: number, userId: string) {
-    const { error } = await supabase.from('user_defined_places').insert([{
+    const payload: Database['public']['Tables']['user_defined_places']['Insert'] = {
         name: name,
         location: `POINT(${lng} ${lat})`,
         user_id: userId
-    }]);
+    };
+    const { error } = await supabase.from('user_defined_places').insert([payload] as any);
 
     if (error) {
         console.error("ProfileService: Error adding user-defined place -", getDebugMessage(error), error);

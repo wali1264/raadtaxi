@@ -1,12 +1,14 @@
 import { supabase } from './supabase';
 import { UserRole, RideRequest, RideStatus } from '../types';
 import { getDebugMessage } from '../utils/helpers'; 
+import { Database } from '../types/supabase';
 
 export const tripService = {
   async createRideRequest(requestDetails: Omit<RideRequest, 'id' | 'created_at' | 'updated_at'>): Promise<RideRequest> {
+    const payload: Database['public']['Tables']['ride_requests']['Insert'] = requestDetails;
     const { data, error } = await supabase
         .from('ride_requests')
-        .insert([requestDetails])
+        .insert([payload] as any)
         .select()
         .single();
     if (error || !data) {
@@ -33,10 +35,10 @@ export const tripService = {
   },
 
   async updateRide(rideId: string, updates: Partial<Omit<RideRequest, 'id' | 'created_at' | 'updated_at'>>): Promise<RideRequest> {
-    const updatePayload = { ...updates, updated_at: new Date().toISOString() };
+    const updatePayload: Database['public']['Tables']['ride_requests']['Update'] = { ...updates, updated_at: new Date().toISOString() };
     const { data, error } = await supabase
         .from('ride_requests')
-        .update(updatePayload)
+        .update(updatePayload as any)
         .eq('id', rideId)
         .select()
         .single();
@@ -49,15 +51,16 @@ export const tripService = {
 
   async submitCancellationReport(details: { rideId: string, userId: string, role: UserRole, reasonKey: string, customReason: string | null }) {
     const { rideId, userId, role, reasonKey, customReason } = details;
-    const { error } = await supabase
-      .from('ride_cancellations')
-      .insert([{
+    const payload: Database['public']['Tables']['ride_cancellations']['Insert'] = {
         ride_request_id: rideId,
         cancelled_by_user_id: userId,
         canceller_role: role,
         reason_key: reasonKey,
         custom_reason: customReason,
-      }]);
+      };
+    const { error } = await supabase
+      .from('ride_cancellations')
+      .insert([payload] as any);
 
     if (error) {
       console.error("TripService: Error submitting cancellation report -", getDebugMessage(error), error);

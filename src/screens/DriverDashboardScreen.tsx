@@ -57,6 +57,13 @@ const LogoutIcon = ({ style }: { style?: CSSProperties }) => (
 
 const RIDE_REQUEST_COLUMNS = 'id, created_at, passenger_id, passenger_name, passenger_phone, is_third_party, driver_id, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, service_id, estimated_fare, status, updated_at, accepted_at, driver_arrived_at_origin_at, trip_started_at, driver_arrived_at_destination_at, route_to_origin_polyline, route_to_destination_polyline, actual_fare';
 
+const getScaledMarkerBaseDimension = (zoom: number): number => {
+    if (zoom >= 17) return 28; // Smallest at highest zoom
+    if (zoom >= 15) return 36;
+    if (zoom >= 13) return 44;
+    return 52; // Largest at lowest zoom
+};
+
 export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps): JSX.Element => {
   const { 
     currentLang, 
@@ -495,16 +502,23 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const drawTripMarkers = (originCoords: L.LatLngTuple, destinationCoords: L.LatLngTuple | null) => {
     const map = mapInstanceRef.current;
     if(!map) return;
+    
+    // Set initial size based on current zoom to avoid flicker
+    const zoom = map.getZoom();
+    const baseDim = getScaledMarkerBaseDimension(zoom);
+    const iconHeight = baseDim * (42 / 32);
+    const iconSize: [number, number] = [baseDim, iconHeight];
+    const iconAnchor: L.PointExpression = [baseDim / 2, iconHeight];
 
     if (tripOriginMarkerRef.current && map.hasLayer(tripOriginMarkerRef.current)) map.removeLayer(tripOriginMarkerRef.current);
-    const originIconHTML = ReactDOMServer.renderToString(<LocationMarkerIcon color="#FF8C00" style={{ filter: 'drop-shadow(0px 0px 2px rgba(0,0,0,0.7))' }}/>);
-    const originLeafletIcon = L.divIcon({ html: originIconHTML, className: 'trip-origin-marker', iconSize: [32,32], iconAnchor: [16,32] });
+    const originIconHTML = ReactDOMServer.renderToString(<LocationMarkerIcon color="#FF8C00" style={{ filter: 'drop-shadow(0px 0px 2px rgba(0,0,0,0.7))', width: `${baseDim}px`, height: `${iconHeight}px` }}/>);
+    const originLeafletIcon = L.divIcon({ html: originIconHTML, className: 'trip-origin-marker', iconSize: iconSize, iconAnchor: iconAnchor });
     tripOriginMarkerRef.current = L.marker(originCoords, { icon: originLeafletIcon }).addTo(map);
 
     if (destinationCoords) {
         if (tripDestinationMarkerRef.current && map.hasLayer(tripDestinationMarkerRef.current)) map.removeLayer(tripDestinationMarkerRef.current);
-        const destIconHTML = ReactDOMServer.renderToString(<DestinationMarkerIcon color="#EA4335" style={{ filter: 'drop-shadow(0px 0px 2px rgba(0,0,0,0.7))' }}/>);
-        const destLeafletIcon = L.divIcon({ html: destIconHTML, className: 'trip-destination-marker', iconSize: [32,32], iconAnchor: [16,16] });
+        const destIconHTML = ReactDOMServer.renderToString(<DestinationMarkerIcon color="#EA4335" style={{ filter: 'drop-shadow(0px 0px 2px rgba(0,0,0,0.7))', width: `${baseDim}px`, height: `${iconHeight}px` }}/>);
+        const destLeafletIcon = L.divIcon({ html: destIconHTML, className: 'trip-destination-marker', iconSize: iconSize, iconAnchor: iconAnchor });
         tripDestinationMarkerRef.current = L.marker(destinationCoords, { icon: destLeafletIcon }).addTo(map);
     }
   };
@@ -827,6 +841,50 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     };
     if (loggedInUserId) { recoverTrip(); }
   }, [loggedInUserId, currentTrip, t, resetTripState, fetchOsrmRoute, drawRouteOnMap, drawTripMarkers, clearMapTripElements, supabase]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !currentTrip) {
+        return;
+    }
+
+    const handleZoom = () => {
+        const zoom = map.getZoom();
+        const baseDim = getScaledMarkerBaseDimension(zoom);
+        
+        const iconHeight = baseDim * (42 / 32); // Aspect ratio of 32:42
+        const iconSize: [number, number] = [baseDim, iconHeight];
+        
+        const iconAnchor: L.PointExpression = [baseDim / 2, iconHeight]; // Bottom-center
+
+        if (tripOriginMarkerRef.current) {
+            const originIconHTML = ReactDOMServer.renderToString(<LocationMarkerIcon color="#FF8C00" style={{ filter: 'drop-shadow(0px 0px 2px rgba(0,0,0,0.7))', width: `${baseDim}px`, height: `${iconHeight}px` }}/>);
+            tripOriginMarkerRef.current.setIcon(L.divIcon({
+                html: originIconHTML,
+                className: 'trip-origin-marker',
+                iconSize: iconSize,
+                iconAnchor: iconAnchor
+            }));
+        }
+
+        if (tripDestinationMarkerRef.current) {
+            const destIconHTML = ReactDOMServer.renderToString(<DestinationMarkerIcon color="#EA4335" style={{ filter: 'drop-shadow(0px 0px 2px rgba(0,0,0,0.7))', width: `${baseDim}px`, height: `${iconHeight}px` }}/>);
+            tripDestinationMarkerRef.current.setIcon(L.divIcon({
+                html: destIconHTML,
+                className: 'trip-destination-marker',
+                iconSize: iconSize,
+                iconAnchor: iconAnchor
+            }));
+        }
+    };
+
+    map.on('zoomend', handleZoom);
+    handleZoom(); // Initial call to set size
+
+    return () => {
+        map.off('zoomend', handleZoom);
+    };
+  }, [currentTrip, mapInstanceRef.current]);
 
 
   // --- STYLES ---
