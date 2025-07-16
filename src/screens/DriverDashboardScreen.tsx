@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -54,8 +55,6 @@ const LogoutIcon = ({ style }: { style?: CSSProperties }) => (
     </svg>
 );
 // --- End Local Icon Components ---
-
-const RIDE_REQUEST_COLUMNS = 'id, created_at, passenger_id, passenger_name, passenger_phone, is_third_party, driver_id, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, service_id, estimated_fare, status, updated_at, accepted_at, driver_arrived_at_origin_at, trip_started_at, driver_arrived_at_destination_at, route_to_origin_polyline, route_to_destination_polyline, actual_fare';
 
 const getScaledMarkerBaseDimension = (zoom: number): number => {
     if (zoom >= 17) return 28; // Smallest at highest zoom
@@ -125,18 +124,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const userPlaceMarkersRef = useRef<L.Marker[]>([]);
 
   const { userDefinedPlaces, refetch: refetchUserPlaces } = useUserDefinedPlaces();
-
-  useEffect(() => {
-    const handleSubscription = async () => {
-        if (isOnline && isUserVerified && loggedInUserId) {
-            if (Notification.permission !== 'denied') {
-                await notificationService.subscribeUser(loggedInUserId);
-            }
-        }
-    };
-
-    handleSubscription();
-  }, [isOnline, loggedInUserId, isUserVerified]);
 
   const playNotificationSound = useCallback(() => {
     if (audioPlayerRef.current) {
@@ -356,13 +343,13 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
           const { latitude, longitude, heading } = position.coords;
           setDriverLocation({ lat: latitude, lng: longitude });
           try {
-            await supabase.from('driver_locations').upsert([{
+            await supabase.from('driver_locations').upsert({
                 driver_id: loggedInUserId,
                 latitude: latitude,
                 longitude: longitude,
                 heading: heading,
                 timestamp: new Date().toISOString(),
-            }] as any, { onConflict: 'driver_id' });
+            }, { onConflict: 'driver_id' });
 
             if (actualDriverGpsMarker.current) {
                 actualDriverGpsMarker.current.setLatLng([latitude, longitude]);
@@ -388,7 +375,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     if (!isOnline || !isUserVerified) { setAllPendingRequests([]); setIsLoadingAllPending(false); return; }
     setIsLoadingAllPending(true); setFetchError(null);
     try {
-      const { data, error } = await supabase.from('ride_requests').select(RIDE_REQUEST_COLUMNS).eq('status', 'pending').is('driver_id', null); 
+      const { data, error } = await supabase.from('ride_requests').select().eq('status', 'pending').is('driver_id', null); 
       if (error) { console.error('[DriverDashboard] Error fetching all pending requests:', getDebugMessage(error), error); setFetchError(t.errorFetchingRequests); setAllPendingRequests([]); }
       else { 
           const nonDeclinedRequests = (data as unknown as RideRequest[]).filter(
@@ -473,30 +460,79 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   }, [isOnline, isUserVerified, fetchAllPendingRequests, currentTrip, isRTL, resetTripState, supabase, t.tripCancelledByPassenger]);
 
   const toggleOnlineStatus = async () => {
-    if (!loggedInUserId || !isUserVerified) { 
-        if (!isUserVerified) alert(t.accountNotVerifiedWarning);
-        else alert("User ID not found. Cannot change status."); 
-        return; 
+    if (!loggedInUserId) {
+      alert("User ID not found. Cannot change status.");
+      return;
     }
-    const newStatus = !isOnline;
-    
-    if (newStatus && audioPlayerRef.current) {
-        audioPlayerRef.current.src = SILENT_AUDIO_DATA_URI;
-        audioPlayerRef.current.play().catch(e => {
-            console.warn("Audio context unlock attempt info:", e.message);
-        });
+    if (!isUserVerified) {
+      alert(t.accountNotVerifiedWarning);
+      return;
     }
 
-    setIsOnline(newStatus); 
-    try { 
-        await profileService.updateDriverOnlineStatus(loggedInUserId, newStatus); 
-        if (newStatus && (!driverProfile.userId || driverProfile.userId !== loggedInUserId)) { 
-             profileService.fetchDriverProfile(loggedInUserId)
-                .then(data => setDriverProfile(data))
-                .catch(err => console.error("Error fetching driver profile on going online:", err));
-        }
+    const newStatus = !isOnline;
+
+    // If going OFFLINE, just update the status and return.
+    if (!newStatus) {
+      setIsOnline(false);
+      try {
+        await profileService.updateDriverOnlineStatus(loggedInUserId, false);
+      } catch (e: any) {
+        setIsOnline(true); // Revert on error
+        alert(t.errorUpdatingDriverStatus + `: ${getDebugMessage(e)}`);
+      }
+      return;
     }
-    catch (e: any) { setIsOnline(!newStatus); alert(t.errorUpdatingDriverStatus + `: ${getDebugMessage(e)}`); }
+
+    // --- Logic for going ONLINE ---
+
+    // 1. Check permissions and try to subscribe.
+    try {
+      if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+        // A more user-friendly error for unsupported browsers.
+        const unsupportedMessage = isRTL 
+          ? 'مرورگر شما از اعلان‌ها پشتیبانی نمی‌کند. برای دریافت درخواست‌ها، لطفاً از مرورگر دیگری مانند کروم یا فایرفاکس استفاده کنید.' 
+          : 'Your browser does not support push notifications. To receive requests, please use another browser like Chrome or Firefox.';
+        throw new Error(unsupportedMessage);
+      }
+
+      if (Notification.permission === 'denied') {
+        throw new Error(t.notificationPermissionDenied);
+      }
+      
+      // This call will handle the permission prompt if the state is 'default'
+      await notificationService.subscribeUser(loggedInUserId);
+      console.log('Successfully subscribed for push notifications.');
+
+    } catch (subError: any) {
+      // Alert the user with the specific error message and stop the process.
+      alert(getDebugMessage(subError)); 
+      return; // IMPORTANT: Do not proceed to go online if subscription fails.
+    }
+    
+    // 2. Unlock audio context. This is a best-effort attempt.
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.src = SILENT_AUDIO_DATA_URI;
+      audioPlayerRef.current.play().catch(e => {
+        console.warn("Audio context unlock attempt info:", (e as Error).message);
+      });
+    }
+
+    // 3. If subscription was successful, set UI state and update backend.
+    setIsOnline(true);
+    try {
+      await profileService.updateDriverOnlineStatus(loggedInUserId, true);
+      
+      // Ensure profile data is fresh.
+      if (!driverProfile.userId || driverProfile.userId !== loggedInUserId) {
+        profileService.fetchDriverProfile(loggedInUserId)
+          .then(data => setDriverProfile(data))
+          .catch(err => console.error("Error fetching driver profile on going online:", err));
+      }
+    } catch (e: any) {
+      // Revert UI state if backend update fails.
+      setIsOnline(false);
+      alert(t.errorUpdatingDriverStatus + `: ${getDebugMessage(e)}`);
+    }
   };
 
   const drawTripMarkers = (originCoords: L.LatLngTuple, destinationCoords: L.LatLngTuple | null) => {

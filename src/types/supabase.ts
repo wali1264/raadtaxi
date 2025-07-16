@@ -384,7 +384,7 @@ export interface Database {
           location_text: string
           user_id: string
         }[]
-      },
+      }
       get_trip_counterpart_details: {
         Args: {
           user_id_to_fetch: string
@@ -395,13 +395,13 @@ export interface Database {
           phone_number: string
           profile_pic_url: string
         }
-      },
+      }
       get_user_role_by_phone: {
         Args: {
           p_phone_number: string
         }
-        Returns: string
-      },
+        Returns: Json
+      }
       search_user_places_by_name: {
           Args: {
               search_query: string

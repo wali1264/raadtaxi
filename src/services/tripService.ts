@@ -1,3 +1,4 @@
+
 import { supabase } from './supabase';
 import { UserRole, RideRequest, RideStatus } from '../types';
 import { getDebugMessage } from '../utils/helpers'; 
@@ -8,20 +9,20 @@ export const tripService = {
     const payload: Database['public']['Tables']['ride_requests']['Insert'] = requestDetails;
     const { data, error } = await supabase
         .from('ride_requests')
-        .insert([payload] as any)
+        .insert([payload])
         .select()
         .single();
     if (error || !data) {
         console.error("TripService: Error creating ride request -", getDebugMessage(error), error);
         throw error || new Error("Failed to create ride request: No data returned.");
     }
-    return data as unknown as RideRequest;
+    return data as RideRequest;
   },
 
   async fetchRideRequestById(rideId: string): Promise<RideRequest | null> {
     const { data, error } = await supabase
         .from('ride_requests')
-        .select()
+        .select('*')
         .eq('id', rideId)
         .single();
     if (error) {
@@ -31,14 +32,14 @@ export const tripService = {
         console.error("TripService: Error fetching ride request by ID -", getDebugMessage(error), error);
         throw error;
     }
-    return data as unknown as RideRequest | null;
+    return data as RideRequest | null;
   },
 
   async updateRide(rideId: string, updates: Partial<Omit<RideRequest, 'id' | 'created_at' | 'updated_at'>>): Promise<RideRequest> {
     const updatePayload: Database['public']['Tables']['ride_requests']['Update'] = { ...updates, updated_at: new Date().toISOString() };
     const { data, error } = await supabase
         .from('ride_requests')
-        .update(updatePayload as any)
+        .update(updatePayload)
         .eq('id', rideId)
         .select()
         .single();
@@ -46,7 +47,7 @@ export const tripService = {
         console.error("TripService: Error updating ride -", getDebugMessage(error), error);
         throw error;
     }
-    return data as unknown as RideRequest;
+    return data as RideRequest;
   },
 
   async submitCancellationReport(details: { rideId: string, userId: string, role: UserRole, reasonKey: string, customReason: string | null }) {
@@ -60,7 +61,7 @@ export const tripService = {
       };
     const { error } = await supabase
       .from('ride_cancellations')
-      .insert([payload] as any);
+      .insert([payload]);
 
     if (error) {
       console.error("TripService: Error submitting cancellation report -", getDebugMessage(error), error);
@@ -72,7 +73,7 @@ export const tripService = {
     const activeStatuses: RideStatus[] = ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination'];
     const { data, error } = await supabase
         .from('ride_requests')
-        .select()
+        .select('*')
         .eq('passenger_id', passengerId)
         .in('status', activeStatuses)
         .order('created_at', { ascending: false })
@@ -83,14 +84,14 @@ export const tripService = {
         console.error("TripService: Error fetching active passenger trip -", getDebugMessage(error), error);
         throw error;
     }
-    return data as unknown as RideRequest | null;
+    return data as RideRequest | null;
   },
 
   async fetchActiveDriverTrip(driverId: string): Promise<RideRequest | null> {
     const activeStatuses: RideStatus[] = ['accepted', 'driver_en_route_to_origin', 'trip_started', 'driver_at_destination'];
     const { data, error } = await supabase
       .from('ride_requests')
-      .select()
+      .select('*')
       .eq('driver_id', driverId)
       .in('status', activeStatuses)
       .order('accepted_at', { ascending: false }) 
@@ -101,15 +102,15 @@ export const tripService = {
         console.error("TripService: Error fetching active driver trip -", getDebugMessage(error), error);
         throw error;
     }
-    return data as unknown as RideRequest | null;
+    return data as RideRequest | null;
   },
 
   async fetchAllPendingRequestsForDriver(): Promise<RideRequest[]> {
-    const { data, error } = await supabase.from('ride_requests').select().eq('status', 'pending').is('driver_id', null); 
+    const { data, error } = await supabase.from('ride_requests').select('*').eq('status', 'pending').is('driver_id', null); 
     if (error) { 
         console.error('[TripService] Error fetching all pending requests:', getDebugMessage(error), error); 
         throw error;
     }
-    return (data as unknown as RideRequest[]) || [];
+    return data || [];
   }
 };

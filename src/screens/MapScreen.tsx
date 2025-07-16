@@ -137,11 +137,34 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
     const center = map.getCenter();
     setCurrentUserLocation({ lat: center.lat, lng: center.lng });
 
+    let nearestPlace: { place: UserDefinedPlace; distance: number } | null = null;
+    if (userDefinedPlaces && userDefinedPlaces.length > 0) {
+        for (const place of userDefinedPlaces) {
+            const distance = getDistanceFromLatLonInKm(center.lat, center.lng, place.location.lat, place.location.lng);
+            if (nearestPlace === null || distance < nearestPlace.distance) {
+                nearestPlace = { place, distance };
+            }
+        }
+    }
+
+    if (nearestPlace && nearestPlace.distance <= 0.3) { // 300 meters
+        let resolvedAddress = '';
+        if (nearestPlace.distance <= 0.15) { // 150 meters
+            resolvedAddress = nearestPlace.place.name;
+        } else {
+            resolvedAddress = t.nearText.replace('{placeName}', nearestPlace.place.name);
+        }
+        setAddress(resolvedAddress);
+        setSearchQuery(resolvedAddress);
+        setIsLoadingAddress(false);
+        return; 
+    }
+
     try { 
         const fetchOptions: RequestInit = { method: 'GET', mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' };
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${center.lat}&lon=${center.lng}&accept-language=${currentLang}&zoom=18`, fetchOptions);
         if (!response.ok) throw new Error('Network response was not ok'); const data = await response.json(); if (data && data.display_name) { setAddress(data.display_name); setSearchQuery(data.display_name); } else { setAddress(t.addressNotFound); setSearchQuery(t.addressNotFound); } } catch (error) { console.error("Error fetching address:", error); setAddress(t.addressError); setSearchQuery(t.addressError); } finally { setIsLoadingAddress(false); }
-  }, [currentLang, t.addressLoading, t.addressNotFound, t.addressError, showDriverSearchSheet, showTripInProgressSheet, showSuggestionModal, t]);
+  }, [currentLang, t.addressLoading, t.addressNotFound, t.addressError, t.nearText, showDriverSearchSheet, showTripInProgressSheet, showSuggestionModal, userDefinedPlaces]);
 
   const handleManualSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -364,59 +387,57 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   useEffect(() => {
     const map = mapInstanceRef.current;
     const driverId = currentDriverDetails?.driverId;
-  
+
     const cleanup = () => {
-      if (driverMarkerRef.current && map?.hasLayer(driverMarkerRef.current)) {
-        map.removeLayer(driverMarkerRef.current);
-        driverMarkerRef.current = null;
-      }
-      if (driverLocationChannelRef.current) {
-        supabase.removeChannel(driverLocationChannelRef.current);
-        driverLocationChannelRef.current = null;
-      }
+        if (driverMarkerRef.current && map?.hasLayer(driverMarkerRef.current)) {
+            map.removeLayer(driverMarkerRef.current);
+            driverMarkerRef.current = null;
+        }
+        if (driverLocationChannelRef.current) {
+            supabase.removeChannel(driverLocationChannelRef.current);
+            driverLocationChannelRef.current = null;
+        }
     };
-  
+
     if (showTripInProgressSheet && driverId && map) {
-      const initializeDriverMarker = () => {
         driverLocationChannelRef.current = supabase
-          .channel(`driver_location_${driverId}`)
-          .on('postgres_changes',
-            {
-              event: '*',
-              schema: 'public',
-              table: 'driver_locations',
-              filter: `driver_id=eq.${driverId}`,
-            },
-            (payload) => {
-              const newLocation = payload.new as { latitude: number; longitude: number; heading?: number };
-              if (newLocation && map) {
-                const newLatLng = L.latLng(newLocation.latitude, newLocation.longitude);
-  
-                if (!driverMarkerRef.current) {
-                  const carIconHTML = ReactDOMServer.renderToString(<DriverCarIcon />);
-                  const carIcon = L.divIcon({ html: carIconHTML, className: 'driver-car-icon', iconSize: [40, 40], iconAnchor: [20, 20] });
-                  driverMarkerRef.current = L.marker(newLatLng, { icon: carIcon, zIndexOffset: 1000 }).addTo(map);
-                } else {
-                  driverMarkerRef.current.setLatLng(newLatLng);
+            .channel(`driver_location_${driverId}`)
+            .on('postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'driver_locations',
+                    filter: `driver_id=eq.${driverId}`,
+                },
+                (payload) => {
+                    const newLocation = payload.new as { latitude: number; longitude: number; heading?: number };
+                    if (newLocation && map) {
+                        const newLatLng = L.latLng(newLocation.latitude, newLocation.longitude);
+                        
+                        if (!driverMarkerRef.current) {
+                            const carIconHTML = ReactDOMServer.renderToString(<DriverCarIcon />);
+                            const carIcon = L.divIcon({ html: carIconHTML, className: 'driver-car-icon', iconSize: [40, 40], iconAnchor: [20, 20] });
+                            driverMarkerRef.current = L.marker(newLatLng, { icon: carIcon, zIndexOffset: 1000 }).addTo(map);
+                            
+                            const passengerPickupPosition = confirmedOrigin ? L.latLng(confirmedOrigin.lat, confirmedOrigin.lng) : null;
+                            
+                            if (passengerPickupPosition) {
+                                const bounds = L.latLngBounds([passengerPickupPosition, newLatLng]);
+                                map.fitBounds(bounds, { padding: [80, 80], maxZoom: 17, animate: true });
+                            }
+                        } else {
+                            driverMarkerRef.current.setLatLng(newLatLng);
+                        }
+                    }
                 }
-  
-                const userMarkerPosition = originMapMarker?.getLatLng();
-                if (userMarkerPosition) {
-                    const bounds = L.latLngBounds([userMarkerPosition, newLatLng]);
-                    map.fitBounds(bounds, { padding: [80, 80], maxZoom: 17, animate: true });
-                }
-              }
-            }
-          )
-          .subscribe();
-      };
-  
-      initializeDriverMarker();
-      return cleanup;
+            )
+            .subscribe();
+      
+        return cleanup;
     } else {
-      cleanup();
+        cleanup();
     }
-  }, [showTripInProgressSheet, currentDriverDetails, mapInstanceRef.current]);
+  }, [showTripInProgressSheet, currentDriverDetails, mapInstanceRef.current, confirmedOrigin]);
 
   useEffect(() => {
     const layer = suggestionMarkersLayerRef.current;

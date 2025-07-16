@@ -1,3 +1,4 @@
+
 import { supabase } from './supabase';
 import { getDebugMessage } from '../utils/helpers';
 import { Database } from '../types/supabase';
@@ -41,7 +42,7 @@ export const notificationService = {
                 const permission = await Notification.requestPermission();
                 if (permission !== 'granted') {
                     console.warn('Permission for notifications was not granted.');
-                    return; // Exit if permission is denied.
+                    throw new Error('Permission for notifications was not granted by the user.');
                 }
 
                 const applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
@@ -85,6 +86,8 @@ export const notificationService = {
 
         } catch (error) {
             console.error('Failed to subscribe the user: ', getDebugMessage(error));
+            // Re-throw the error so the calling function can handle it.
+            throw error;
         }
     }
 };

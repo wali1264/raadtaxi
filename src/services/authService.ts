@@ -14,8 +14,9 @@ export const authService = {
         return null;
     }
 
-    if (data) {
-        return { role: data as UserRole };
+    // data will now be null or an object like { "role": "driver" }
+    if (data && (data as any).role) {
+        return { role: (data as any).role as UserRole };
     }
     
     return null;

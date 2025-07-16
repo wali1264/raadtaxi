@@ -1,3 +1,4 @@
+
 import { supabase } from './supabase';
 import { UserRole, Language, DriverProfileData, PassengerDetails, UserSessionData, UserDefinedPlace } from '../types';
 import { Database } from '../types/supabase';
@@ -42,7 +43,7 @@ export const profileService = {
       };
     const { data, error } = await supabase
       .from('users')
-      .insert([payload] as any)
+      .insert([payload])
       .select('id, full_name, role, profile_pic_url, is_verified, phone_number') 
       .single();
 
@@ -55,12 +56,13 @@ export const profileService = {
         throw new Error("User creation did not return data.");
     }
     
+    const typedData = data;
     return {
-        userId: data.id,
-        fullName: data.full_name,
-        phoneNumber: data.phone_number,
-        role: data.role as UserRole,
-        isVerified: data.is_verified,
+        userId: typedData.id,
+        fullName: typedData.full_name,
+        phoneNumber: typedData.phone_number,
+        role: typedData.role as UserRole,
+        isVerified: typedData.is_verified,
     };
   },
 
@@ -69,7 +71,7 @@ export const profileService = {
     
     const { data, error } = await supabase
       .from('users')
-      .update(updatePayload as any)
+      .update(updatePayload)
       .eq('id', userId)
       .select('id, full_name, role, profile_pic_url, is_verified') 
       .single();
@@ -131,7 +133,7 @@ export const profileService = {
     const payload: Database['public']['Tables']['drivers_profile']['Insert'] = { user_id: userId, current_status: 'offline', alert_sound_preference: DEFAULT_SOUND_KEY, alert_sound_volume: DEFAULT_SOUND_VOLUME };
     const { error } = await supabase
       .from('drivers_profile')
-      .insert([payload] as any); 
+      .insert([payload]); 
     if (error) {
       console.error("ProfileService: Error creating driver profile entry -", getDebugMessage(error), error);
       throw error;
@@ -156,7 +158,7 @@ export const profileService = {
     
     const { data: driverProfileData, error: driverProfileError } = await supabase
         .from('drivers_profile')
-        .select()
+        .select('*')
         .eq('user_id', userId)
         .single();
 
@@ -164,19 +166,21 @@ export const profileService = {
         console.error("ProfileService: Error fetching driver_profile data -", getDebugMessage(driverProfileError), driverProfileError);
         throw driverProfileError;
     }
-
+    
+    const typedUserData = userData;
+    const typedDriverProfileData = driverProfileData;
     return {
         userId: userId,
-        fullName: userData?.full_name || '',
-        phoneNumber: userData?.phone_number || '',
-        profilePicUrl: userData?.profile_pic_url || '',
-        vehicleModel: driverProfileData?.vehicle_model || '',
-        vehicleColor: driverProfileData?.vehicle_color || '',
-        plateRegion: driverProfileData?.plate_region || '',
-        plateNumbers: driverProfileData?.plate_numbers || '',
-        plateTypeChar: driverProfileData?.plate_type_char || '',
-        alertSoundPreference: driverProfileData?.alert_sound_preference || DEFAULT_SOUND_KEY,
-        alertSoundVolume: driverProfileData?.alert_sound_volume ?? DEFAULT_SOUND_VOLUME,
+        fullName: typedUserData.full_name || '',
+        phoneNumber: typedUserData.phone_number || '',
+        profilePicUrl: typedUserData.profile_pic_url || '',
+        vehicleModel: typedDriverProfileData?.vehicle_model || '',
+        vehicleColor: typedDriverProfileData?.vehicle_color || '',
+        plateRegion: typedDriverProfileData?.plate_region || '',
+        plateNumbers: typedDriverProfileData?.plate_numbers || '',
+        plateTypeChar: typedDriverProfileData?.plate_type_char || '',
+        alertSoundPreference: typedDriverProfileData?.alert_sound_preference || DEFAULT_SOUND_KEY,
+        alertSoundVolume: typedDriverProfileData?.alert_sound_volume ?? DEFAULT_SOUND_VOLUME,
     };
   },
 
@@ -197,7 +201,7 @@ export const profileService = {
       if (userNeedsUpdate) {
           const { error: userUpdateError } = await supabase
               .from('users')
-              .update(userUpdates as any)
+              .update(userUpdates)
               .eq('id', userId);
           if (userUpdateError) {
               console.error("ProfileService: Error updating user's full_name/profile_pic_url (for driver) -", getDebugMessage(userUpdateError), userUpdateError);
@@ -218,7 +222,7 @@ export const profileService = {
         driverProfileDbUpdates.updated_at = new Date().toISOString();
         const { error: driverProfileUpsertError } = await supabase
             .from('drivers_profile')
-            .upsert([driverProfileDbUpdates] as any, { onConflict: 'user_id' });
+            .upsert(driverProfileDbUpdates, { onConflict: 'user_id' });
 
         if (driverProfileUpsertError) {
             console.error("ProfileService: Error upserting driver_profile -", getDebugMessage(driverProfileUpsertError), driverProfileUpsertError);
@@ -237,7 +241,7 @@ export const profileService = {
       };
     const { error } = await supabase
       .from('drivers_profile')
-      .upsert([payload] as any,
+      .upsert(payload,
         { onConflict: 'user_id' }
       );
 
@@ -263,13 +267,13 @@ export const profileService = {
     }
     if (!data) return null;
     
-    const result = data as any;
+    const typedData = data;
 
     return {
-        id: result.id,
-        fullName: result.full_name,
-        phoneNumber: result.phone_number,
-        profilePicUrl: result.profile_pic_url,
+        id: typedData.id,
+        fullName: typedData.full_name,
+        phoneNumber: typedData.phone_number,
+        profilePicUrl: typedData.profile_pic_url,
     };
   },
 
@@ -288,13 +292,14 @@ export const profileService = {
         throw error;
     }
     if (!data) return null;
-
+    
+    const typedData = data;
     return {
-        userId: data.id,
-        fullName: data.full_name,
-        phoneNumber: data.phone_number,
-        role: data.role as UserRole,
-        isVerified: data.is_verified,
+        userId: typedData.id,
+        fullName: typedData.full_name,
+        phoneNumber: typedData.phone_number,
+        role: typedData.role as UserRole,
+        isVerified: typedData.is_verified,
     };
   },
 
@@ -304,7 +309,7 @@ export const profileService = {
         location: `POINT(${lng} ${lat})`,
         user_id: userId
     };
-    const { error } = await supabase.from('user_defined_places').insert([payload] as any);
+    const { error } = await supabase.from('user_defined_places').insert([payload]);
 
     if (error) {
         console.error("ProfileService: Error adding user-defined place -", getDebugMessage(error), error);

@@ -255,6 +255,8 @@ const faTranslations = {
   geminiApiError: "دریافت پیشنهاد با خطا مواجه شد. لطفاً بعداً تلاش کنید.",
   geminiSelectAsDestination: "انتخاب به عنوان مقصد",
   geminiTellUsMore: "دنبال چه چیزی می‌گردید؟",
+  nearText: "نزدیک {placeName}",
+  notificationPermissionDenied: "دسترسی به اعلان‌ها رد شده است. لطفاً از تنظیمات مرورگر خود، مجوز لازم را بدهید تا بتوانید درخواست‌های سفر را دریافت کنید.",
 };
 
 export type TranslationSet = typeof faTranslations;
@@ -513,6 +515,8 @@ const psTranslations: TranslationSet = {
   geminiApiError: "د وړاندیزونو په ترلاسه کولو کې پاتې راغلل. مهرباني وکړئ وروسته بیا هڅه وکړئ.",
   geminiSelectAsDestination: "د مقصد په توګه وټاکئ",
   geminiTellUsMore: "تاسو د څه شي په لټه کې یاست؟",
+  nearText: "{placeName} ته نږدې",
+  notificationPermissionDenied: "د خبرتیاوو ته لاسرسی رد شو. مهرباني وکړئ د خپل براوزر تنظیماتو څخه اړین اجازه ورکړئ ترڅو تاسو وکولی شئ د سفر غوښتنې ترلاسه کړئ.",
 };
 
 const enTranslations: TranslationSet = {
@@ -769,6 +773,8 @@ const enTranslations: TranslationSet = {
   geminiApiError: "Could not get suggestions. Please try again later.",
   geminiSelectAsDestination: "Set as Destination",
   geminiTellUsMore: "What are you looking for?",
+  nearText: "Near {placeName}",
+  notificationPermissionDenied: "Notification access has been denied. Please grant the necessary permission from your browser settings to be able to receive ride requests.",
 };
 
 export const translations: Record<Language, TranslationSet> = {

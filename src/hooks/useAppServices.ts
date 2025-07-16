@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, CSSProperties } from 'react';
 import { supabase } from '../services/supabase';
 import { translations, Language, TranslationSet } from '../translations';
@@ -5,7 +6,6 @@ import { AppService, AppServiceCategory, DbService } from '../types';
 import { DefaultServiceIcon, RickshawIcon, TaxiIcon, MotorcycleRickshawIcon } from '../components/icons';
 import { getDebugMessage } from '../utils/helpers'; // Import from helpers
 import { Database } from '../types/supabase';
-import { PostgrestSingleResponse } from '@supabase/supabase-js';
 
 // Moved serviceImageMap here
 const serviceImageMap: Record<string, React.FC<{ style?: CSSProperties }>> = {
@@ -33,9 +33,9 @@ export const useAppServices = (currentLang: Language) => {
     setIsLoadingServices(true);
     setServiceFetchError(null);
     try {
-      const { data, error }: PostgrestSingleResponse<Database['public']['Tables']['services']['Row'][]> = await supabase
+      const { data, error } = await supabase
         .from('services')
-        .select()
+        .select('*')
         .eq('is_active', true);
 
       if (error) {
@@ -44,7 +44,7 @@ export const useAppServices = (currentLang: Language) => {
         return;
       }
       
-      const dbServices: Database['public']['Tables']['services']['Row'][] = data || [];
+      const dbServices: DbService[] = data || [];
 
       const categoryDetails: { [key: string]: { nameKey: keyof TranslationSet } } = {
         'passenger': { nameKey: 'serviceCategoryPassenger' },
@@ -55,7 +55,7 @@ export const useAppServices = (currentLang: Language) => {
       const tempAllServices: AppService[] = [];
       const categoriesMap: { [key: string]: AppService[] } = {};
 
-      dbServices.forEach(dbService => {
+      dbServices.forEach((dbService: DbService) => {
         const imageComponent = serviceImageMap[dbService.image_identifier] || DefaultServiceIcon;
         
         const nameKeyCandidate = dbService.name_key;
