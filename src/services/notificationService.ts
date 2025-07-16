@@ -3,8 +3,9 @@ import { supabase } from './supabase';
 import { getDebugMessage } from '../utils/helpers';
 import { Database } from '../types/supabase';
 
-// This is a public key, safe to be exposed on the client.
-const VAPID_PUBLIC_KEY = 'BL1_3Yq81F_yFm9Q4PLOUvA7U0m1dK2H8U91e1i_M3oA6KzXN1JqV2K2F-hZ7X3S4W1J8C6I0J1o8s';
+// This VAPID key must be provided as an environment variable during the build process.
+// It is the public key corresponding to the private key used by your push notification server.
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 
 /**
  * Converts a VAPID key from a URL-safe base64 string to a Uint8Array.
@@ -28,9 +29,15 @@ export const notificationService = {
      * @param userId The ID of the currently logged-in user.
      */
     async subscribeUser(userId: string): Promise<void> {
+        if (!VAPID_PUBLIC_KEY) {
+            const errorMessage = "VAPID Public Key is not defined. Please set the VAPID_PUBLIC_KEY environment variable in your build settings.";
+            console.error(errorMessage);
+            throw new Error(errorMessage);
+        }
+
         if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
             console.warn('Push messaging is not supported in this browser.');
-            return;
+            throw new Error('Push messaging is not supported in this browser.');
         }
 
         try {

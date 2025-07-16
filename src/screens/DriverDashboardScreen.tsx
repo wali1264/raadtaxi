@@ -164,7 +164,12 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
                             showToast(t.newChatMessageToast.replace('{name}', currentPassengerDetails?.fullName || t.defaultPassengerName).replace('{message}', newMessage.message_text.substring(0, 30)), 'info');
                         }
                     }
-                ).subscribe();
+                ).subscribe((status, err) => {
+                    if (err) {
+                        const errorDetails = getDebugMessage(err);
+                        console.error(`[DriverDashboard] Chat toast subscription failed for ride ${rideId}:`, errorDetails);
+                    }
+                });
         } else {
              if (chatToastChannelRef.current) {
                 supabase.removeChannel(chatToastChannelRef.current);

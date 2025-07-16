@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "esbuild index.tsx --bundle --outfile=dist/bundle.js --platform=browser --format=esm --jsx=automatic --external:react --external:react-dom/client --external:react/jsx-runtime --external:react-dom/server --external:leaflet --external:@supabase/supabase-js --external:@google/genai --define:process.env.API_KEY=\"'$API_KEY'\" && node scripts/prepare-html.js"
+    "build": "esbuild index.tsx --bundle --outfile=dist/bundle.js --platform=browser --format=esm --jsx=automatic --external:react --external:react-dom/client --external:react/jsx-runtime --external:react-dom/server --external:leaflet --external:@supabase/supabase-js --external:@google/genai --define:process.env.API_KEY=\"'$API_KEY'\" --define:process.env.VAPID_PUBLIC_KEY=\"'$VAPID_PUBLIC_KEY'\" && node scripts/prepare-html.js"
   },
   "devDependencies": {
     "esbuild": "^0.20.2"
