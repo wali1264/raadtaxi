@@ -23,7 +23,10 @@ const App = () => {
   const t = translations[currentLang];
   
   const showToast = (message: string, type: 'error' | 'success' | 'info' = 'info') => {
-    setToast({ message, type });
+    setToast(null); // Clear previous toast if any
+    setTimeout(() => { // Set new toast after a short delay
+        setToast({ message, type });
+    }, 50);
   };
 
   const {
@@ -122,6 +125,7 @@ const App = () => {
     appServiceCategories,
     isLoadingServicesGlobal,
     serviceFetchErrorGlobal,
+    showToast,
   };
 
   const navigateToPassengerProfile = () => setCurrentScreen('passengerProfile');

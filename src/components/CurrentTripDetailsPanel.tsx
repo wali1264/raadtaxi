@@ -14,6 +14,7 @@ interface CurrentTripDetailsPanelProps {
     onStartTrip: () => void;
     onEndTrip: () => void;
     onCancelTrip: () => void;
+    onOpenChat: () => void;
 }
 
 export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = ({
@@ -27,6 +28,7 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
     onStartTrip,
     onEndTrip,
     onCancelTrip,
+    onOpenChat,
 }) => {
     const t = translations[currentLang];
     const isRTL = currentLang !== 'en';
@@ -79,49 +81,6 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
         marginBottom: '0.25rem',
     };
 
-    const passengerPhoneContainerStyle: CSSProperties = {
-        display: 'flex',
-        alignItems: 'center',
-        fontSize: '0.9rem',
-        color: '#555',
-        marginBottom: '0.5rem',
-    };
-
-    const phoneButtonStyle: CSSProperties = {
-        background: 'none',
-        padding: '0.3rem', 
-        border: '1px solid #007bff', 
-        borderRadius: '50%', 
-        color: '#007bff', 
-        cursor: 'pointer',
-        [isRTL ? 'marginRight' : 'marginLeft']: '0.75rem', 
-        display: 'inline-flex', 
-        alignItems: 'center',
-        justifyContent: 'center',
-    };
-    const phoneIconInnerStyle: CSSProperties = {
-        width: '1rem', 
-        height: '1rem',
-    };
-
-    const chatIconStyle: CSSProperties = { 
-        width: '1rem',
-        height: '1rem',
-    };
-    const chatButtonStyle: CSSProperties = { 
-        background: 'none',
-        padding: '0.3rem',
-        border: '1px solid #ccc',
-        borderRadius: '50%',
-        color: '#ccc',
-        cursor: 'not-allowed',
-        [isRTL ? 'marginRight' : 'marginLeft']: '0.5rem',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-    };
-
-
     const addressStyle: CSSProperties = {
         fontSize: '0.9rem',
         marginBottom: '0.5rem',
@@ -156,6 +115,8 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
     const startButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#28a745' };
     const endButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#dc3545' };
     const cancelButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#6c757d' };
+    const callButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#17a2b8' };
+    const chatButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#6c757d' };
     const disabledButtonStyle: CSSProperties = { backgroundColor: '#adb5bd', cursor: 'not-allowed' };
 
     const buttonIconStyle: CSSProperties = { [isRTL ? 'marginLeft' : 'marginRight']: '0.5rem' };
@@ -187,7 +148,6 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
                 const parsed = JSON.parse(passenger.profilePicUrl);
                 passengerImageUrl = parsed.url;
             } catch (e) {
-                // Legacy data might be a plain URL
                 passengerImageUrl = passenger.profilePicUrl;
             }
         }
@@ -199,18 +159,7 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
                 ) : (
                     <UserCircleIcon style={profilePicStyle} />
                 )}
-                <div>
-                    <p style={passengerNameStyle}>{passenger?.fullName || <span style={dataMissingStyle}>{t.dataMissing}</span>}</p>
-                    <div style={passengerPhoneContainerStyle}>
-                        <span>{passenger?.phoneNumber || <span style={dataMissingStyle}>{t.dataMissing}</span>}</span>
-                        <button onClick={handleCall} aria-label={t.callButtonLabel} style={phoneButtonStyle}>
-                            <PhoneIcon style={phoneIconInnerStyle} />
-                        </button>
-                        <button aria-label={t.chatButtonLabel} style={chatButtonStyle} disabled>
-                             <MessageBubbleIcon style={chatIconStyle} />
-                        </button>
-                    </div>
-                </div>
+                <p style={passengerNameStyle}>{passenger?.fullName || trip.passenger_name || <span style={dataMissingStyle}>{t.dataMissing}</span>}</p>
             </div>
         );
     };
@@ -222,19 +171,17 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
     return (
         <div style={panelStyle}>
             <div style={sectionStyle}>
+                <h3 style={sectionTitleStyle}>{t.passengerInfoSectionTitle}</h3>
                 {renderPassengerInfo()}
             </div>
-
+            
             <div style={sectionStyle}>
                 <p style={addressStyle}>
-                    <span style={addressLabelStyle}>{t.requestFromLabel} </span> 
+                    <span style={addressLabelStyle}>{t.originLabel}: </span> 
                     {trip.origin_address || <span style={dataMissingStyle}>{t.dataMissing}</span>}
                 </p>
-            </div>
-
-            <div style={sectionStyle}>
                 <p style={addressStyle}>
-                    <span style={addressLabelStyle}>{t.requestToLabel} </span>
+                    <span style={addressLabelStyle}>{t.destinationLabel}: </span>
                     {trip.destination_address || <span style={dataMissingStyle}>{t.dataMissing}</span>}
                 </p>
             </div>
@@ -242,6 +189,14 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
             <div style={lastSectionStyle}>
                 <h3 style={sectionTitleStyle}>{t.tripActionsSectionTitle}</h3>
                 <div style={actionButtonsContainerStyle}>
+                    <button style={passenger?.phoneNumber ? callButtonStyle : {...callButtonStyle, ...disabledButtonStyle}} onClick={handleCall} disabled={!passenger?.phoneNumber}>
+                        <PhoneIcon style={buttonIconStyle} />
+                        {t.callButtonLabel}
+                    </button>
+                    <button style={chatButtonStyle} onClick={onOpenChat}>
+                        <MessageBubbleIcon style={buttonIconStyle} />
+                        {t.chatButtonLabel}
+                    </button>
                     <button style={canNavigateToPickup ? navigateButtonStyle : {...navigateButtonStyle, ...disabledButtonStyle}} onClick={onNavigateToPickup} disabled={!canNavigateToPickup}>
                         <NavigationIcon style={buttonIconStyle} />
                         {t.navigateToPickupButtonLabel}

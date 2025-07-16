@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
@@ -685,12 +684,11 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
 
     const map = mapInstanceRef.current;
     if (map && confirmedOrigin && confirmedDestination) {
-        // The markers are already on the map, so just fit the bounds to see both.
         const bounds = L.latLngBounds([
             [confirmedOrigin.lat, confirmedOrigin.lng],
             [confirmedDestination.lat, confirmedDestination.lng]
         ]);
-        const bottomPadding = 300; // Keep space for the bottom panel which might reappear
+        const bottomPadding = 300;
         map.fitBounds(bounds, { paddingTopLeft: [40, 40], paddingBottomRight: [40, bottomPadding] });
     }
   };
@@ -806,7 +804,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
       </div>
       {showServiceSheet && confirmedOrigin && confirmedDestination && ( <ServiceSelectionSheet currentLang={currentLang} originAddress={confirmedOrigin.address} destinationAddress={confirmedDestination.address} routeDistanceKm={routeDistanceKm} isCalculatingDistance={isCalculatingDistance} distanceError={distanceError} onClose={handleCloseServiceSheet} onRequestRide={handleRequestRideFromSheet} serviceCategories={appServiceCategories} isLoadingServices={isLoadingServicesGlobal} serviceFetchError={serviceFetchErrorGlobal} /> )}
       {showDriverSearchSheet && tripActions.getSelectedService() && ( <DriverSearchSheet currentLang={currentLang} searchState={driverSearchState} notifiedDriverCount={notifiedDriverCount} onRetry={tripActions.retryRideRequest} onCancel={resetToInitialMapState} onClose={resetToInitialMapState} selectedServiceName={t[tripActions.getSelectedService()!.nameKey] || tripActions.getSelectedService()!.id} /> )}
-      {showTripInProgressSheet && currentDriverDetails && ( <TripInProgressSheet currentLang={currentLang} driverDetails={currentDriverDetails} tripFare={currentTripFare} tripPhase={tripPhase} estimatedTimeToDestination={estimatedTimeToDestination} displayLevel={tripSheetDisplayLevel} onSetDisplayLevel={tripActions.setTripSheetDisplayLevel} onChangeDestination={() => {}} onApplyCoupon={() => {}} onRideOptions={() => {}} onCancelTrip={tripActions.openCancellationModal} onSafety={() => {}} onClose={resetToInitialMapState} appServices={allAppServices} /> )}
+      {showTripInProgressSheet && currentDriverDetails && ( <TripInProgressSheet currentLang={currentLang} driverDetails={currentDriverDetails} tripFare={currentTripFare} tripPhase={tripPhase} estimatedTimeToDestination={estimatedTimeToDestination} displayLevel={tripSheetDisplayLevel} onSetDisplayLevel={tripActions.setTripSheetDisplayLevel} onChangeDestination={() => {}} onApplyCoupon={() => {}} onRideOptions={() => {}} onCancelTrip={tripActions.openCancellationModal} onSafety={() => {}} onClose={resetToInitialMapState} appServices={allAppServices} rideRequestId={currentRideRequestId} showTripInProgressSheet={showTripInProgressSheet} /> )}
       {isCancellationModalOpen && ( <CancellationModal isOpen={isCancellationModalOpen} onClose={tripActions.closeCancellationModal} onSubmit={tripActions.submitCancellation} userRole={'passenger'} currentLang={currentLang} isSubmitting={isSubmittingCancellation} /> )}
       {showSuggestionModal && ( <GeminiSuggestionModal currentLang={currentLang} userLocation={currentUserLocation} onClose={() => { setShowSuggestionModal(false); setSuggestedDestinations([]); }} onDestinationSelect={handleDestinationSuggested} onSuggestionsLoaded={setSuggestedDestinations} /> )}
     </div>

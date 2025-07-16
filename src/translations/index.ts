@@ -189,7 +189,7 @@ const faTranslations = {
   passengerNameLabel: "نام مسافر",
   passengerPhoneLabel: "شماره تماس مسافر",
   callButtonLabel: "تماس",
-  chatButtonLabel: "چت (غیرفعال)",
+  chatButtonLabel: "چت",
   navigateToPickupButtonLabel: "مسیریابی به مبدأ",
   startTripButtonLabel: "شروع سفر",
   endTripButtonLabel: "پایان سفر",
@@ -257,6 +257,13 @@ const faTranslations = {
   geminiTellUsMore: "دنبال چه چیزی می‌گردید؟",
   nearText: "نزدیک {placeName}",
   notificationPermissionDenied: "دسترسی به اعلان‌ها رد شده است. لطفاً از تنظیمات مرورگر خود، مجوز لازم را بدهید تا بتوانید درخواست‌های سفر را دریافت کنید.",
+  chatModalTitle: "گفتگو با {name}",
+  chatInputPlaceholder: "پیام خود را بنویسید...",
+  sendButton: "ارسال",
+  newChatMessageToast: "پیام جدید از {name}: {message}",
+  errorSendingMessage: "خطا در ارسال پیام.",
+  noMessagesYet: "هنوز پیامی وجود ندارد. اولین پیام را شما ارسال کنید!",
+  messageRead: "خوانده شد",
 };
 
 export type TranslationSet = typeof faTranslations;
@@ -449,7 +456,7 @@ const psTranslations: TranslationSet = {
   passengerNameLabel: "د مسافر نوم",
   passengerPhoneLabel: "د مسافر د اړیکې شمیره",
   callButtonLabel: "زنګ وهل",
-  chatButtonLabel: "چټ (غیر فعال)",
+  chatButtonLabel: "چټ",
   navigateToPickupButtonLabel: "مبدأ ته مسیریابی",
   startTripButtonLabel: "سفر پیل کړئ",
   endTripButtonLabel: "سفر پای ته ورسوئ",
@@ -517,6 +524,13 @@ const psTranslations: TranslationSet = {
   geminiTellUsMore: "تاسو د څه شي په لټه کې یاست؟",
   nearText: "{placeName} ته نږدې",
   notificationPermissionDenied: "د خبرتیاوو ته لاسرسی رد شو. مهرباني وکړئ د خپل براوزر تنظیماتو څخه اړین اجازه ورکړئ ترڅو تاسو وکولی شئ د سفر غوښتنې ترلاسه کړئ.",
+  chatModalTitle: "له {name} سره خبرې",
+  chatInputPlaceholder: "خپل پیغام ولیکئ...",
+  sendButton: "لیږل",
+  newChatMessageToast: "له {name} څخه نوی پیغام: {message}",
+  errorSendingMessage: "د پیغام په لیږلو کې تېروتنه.",
+  noMessagesYet: "تر اوسه هیڅ پیغام نشته. لومړی پیغام تاسو واستوئ!",
+  messageRead: "لوستل شوی",
 };
 
 const enTranslations: TranslationSet = {
@@ -707,7 +721,7 @@ const enTranslations: TranslationSet = {
   passengerNameLabel: "Passenger Name",
   passengerPhoneLabel: "Passenger Phone",
   callButtonLabel: "Call",
-  chatButtonLabel: "Chat (Disabled)",
+  chatButtonLabel: "Chat",
   navigateToPickupButtonLabel: "Navigate to Pickup",
   startTripButtonLabel: "Start Trip",
   endTripButtonLabel: "End Trip",
@@ -775,6 +789,13 @@ const enTranslations: TranslationSet = {
   geminiTellUsMore: "What are you looking for?",
   nearText: "Near {placeName}",
   notificationPermissionDenied: "Notification access has been denied. Please grant the necessary permission from your browser settings to be able to receive ride requests.",
+  chatModalTitle: "Chat with {name}",
+  chatInputPlaceholder: "Type your message...",
+  sendButton: "Send",
+  newChatMessageToast: "New message from {name}: {message}",
+  errorSendingMessage: "Error sending message.",
+  noMessagesYet: "No messages yet. Be the first to send one!",
+  messageRead: "Read",
 };
 
 export const translations: Record<Language, TranslationSet> = {

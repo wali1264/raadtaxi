@@ -1,3 +1,5 @@
+
+
 import React, { CSSProperties } from 'react';
 import { translations, TranslationSet } from '../translations';
 
@@ -86,7 +88,7 @@ export interface DriverDetails {
   vehicleColor: string;
   plateParts: { region: string; numbers: string; type: string };
   profilePicUrl?: string;
-  driverId?: string;
+  driverId: string;
   phoneNumber?: string;
 }
 
@@ -174,4 +176,14 @@ export interface UserDefinedPlace {
     lng: number;
   };
   user_id: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  ride_request_id: string;
+  sender_id: string;
+  receiver_id: string;
+  message_text: string;
+  created_at: string;
+  is_read: boolean;
 }

@@ -1,16 +1,16 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
 import { supabase } from '../services/supabase';
 import { RealtimeChannel, PostgrestError } from '@supabase/supabase-js';
-import { RideRequest, AppService, PassengerDetails, DriverTripPhase, DriverProfileData, UserRole } from '../types'; 
+import { RideRequest, AppService, PassengerDetails, DriverTripPhase, DriverProfileData, UserRole, ChatMessage } from '../types'; 
 import { NewRideRequestPopup } from '../components/NewRideRequestPopup';
 import { DrawerPanel } from '../components/DrawerPanel';
 import { DriverProfileModal } from '../components/DriverProfileModal';
 import { CurrentTripDetailsPanel } from '../components/CurrentTripDetailsPanel'; 
 import { CancellationModal } from '../components/CancellationModal';
 import { AddPlaceModal } from '../components/AddPlaceModal';
+import { ChatModal } from '../components/ChatModal';
 import { ListIcon, CarIcon, GpsIcon, LocationMarkerIcon, DestinationMarkerIcon, ProfileIcon, DriverCarIcon, HourglassIcon, AddLocationIcon, UserPlaceMarkerIcon } from '../components/icons';
 import { AppContext, useAppContext } from '../contexts/AppContext';
 import { profileService, tripService, notificationService } from '../services';
@@ -69,7 +69,8 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     loggedInUserId, 
     isUserVerified,
     allAppServices, 
-    t 
+    t,
+    showToast,
   } = useAppContext();
 
   const isRTL = currentLang !== 'en';
@@ -108,6 +109,9 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
   const [isCancellationModalOpen, setIsCancellationModalOpen] = useState(false);
   const [isSubmittingCancellation, setIsSubmittingCancellation] = useState(false);
+  
+  const [isChatModalOpen, setIsChatModalOpen] = useState(false);
+  const chatToastChannelRef = useRef<RealtimeChannel | null>(null);
 
   const [showIncomingDrawer, setShowIncomingDrawer] = useState(false);
   const [showCurrentTripDrawer, setShowCurrentTripDrawer] = useState(false);
@@ -128,8 +132,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const playNotificationSound = useCallback(() => {
     if (audioPlayerRef.current) {
         const preference = driverProfile.alertSoundPreference;
-        // Use the preference key to look up the sound data.
-        // If the key (or legacy URL) exists in the map, use it. Otherwise, use the 'default' sound.
         const soundUrl = (preference && soundMap[preference]) ? soundMap[preference] : soundMap['default'];
 
         audioPlayerRef.current.src = soundUrl;
@@ -144,6 +146,39 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         });
     }
   }, [driverProfile.alertSoundPreference, driverProfile.alertSoundVolume]);
+  
+    useEffect(() => {
+        const rideId = currentTrip?.id;
+        if (rideId && !isChatModalOpen && loggedInUserId) {
+            if (chatToastChannelRef.current) {
+                supabase.removeChannel(chatToastChannelRef.current);
+            }
+            chatToastChannelRef.current = supabase
+                .channel(`driver_chat_toast_${rideId}`)
+                .on<ChatMessage>(
+                    'postgres_changes',
+                    { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `ride_request_id=eq.${rideId}`},
+                    (payload) => {
+                        const newMessage = payload.new as ChatMessage;
+                        if (newMessage.receiver_id === loggedInUserId) {
+                            showToast(t.newChatMessageToast.replace('{name}', currentPassengerDetails?.fullName || t.defaultPassengerName).replace('{message}', newMessage.message_text.substring(0, 30)), 'info');
+                        }
+                    }
+                ).subscribe();
+        } else {
+             if (chatToastChannelRef.current) {
+                supabase.removeChannel(chatToastChannelRef.current);
+                chatToastChannelRef.current = null;
+            }
+        }
+        return () => {
+            if (chatToastChannelRef.current) {
+                supabase.removeChannel(chatToastChannelRef.current);
+                chatToastChannelRef.current = null;
+            }
+        };
+    }, [currentTrip, isChatModalOpen, loggedInUserId, currentPassengerDetails, showToast, t]);
+
 
   const clearMapTripElements = useCallback(() => {
     const map = mapInstanceRef.current;
@@ -471,24 +506,19 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
     const newStatus = !isOnline;
 
-    // If going OFFLINE, just update the status and return.
     if (!newStatus) {
       setIsOnline(false);
       try {
         await profileService.updateDriverOnlineStatus(loggedInUserId, false);
       } catch (e: any) {
-        setIsOnline(true); // Revert on error
+        setIsOnline(true);
         alert(t.errorUpdatingDriverStatus + `: ${getDebugMessage(e)}`);
       }
       return;
     }
 
-    // --- Logic for going ONLINE ---
-
-    // 1. Check permissions and try to subscribe.
     try {
       if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-        // A more user-friendly error for unsupported browsers.
         const unsupportedMessage = isRTL 
           ? 'مرورگر شما از اعلان‌ها پشتیبانی نمی‌کند. برای دریافت درخواست‌ها، لطفاً از مرورگر دیگری مانند کروم یا فایرفاکس استفاده کنید.' 
           : 'Your browser does not support push notifications. To receive requests, please use another browser like Chrome or Firefox.';
@@ -499,17 +529,14 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         throw new Error(t.notificationPermissionDenied);
       }
       
-      // This call will handle the permission prompt if the state is 'default'
       await notificationService.subscribeUser(loggedInUserId);
       console.log('Successfully subscribed for push notifications.');
 
     } catch (subError: any) {
-      // Alert the user with the specific error message and stop the process.
       alert(getDebugMessage(subError)); 
-      return; // IMPORTANT: Do not proceed to go online if subscription fails.
+      return;
     }
     
-    // 2. Unlock audio context. This is a best-effort attempt.
     if (audioPlayerRef.current) {
       audioPlayerRef.current.src = SILENT_AUDIO_DATA_URI;
       audioPlayerRef.current.play().catch(e => {
@@ -517,19 +544,16 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       });
     }
 
-    // 3. If subscription was successful, set UI state and update backend.
     setIsOnline(true);
     try {
       await profileService.updateDriverOnlineStatus(loggedInUserId, true);
       
-      // Ensure profile data is fresh.
       if (!driverProfile.userId || driverProfile.userId !== loggedInUserId) {
         profileService.fetchDriverProfile(loggedInUserId)
           .then(data => setDriverProfile(data))
           .catch(err => console.error("Error fetching driver profile on going online:", err));
       }
     } catch (e: any) {
-      // Revert UI state if backend update fails.
       setIsOnline(false);
       alert(t.errorUpdatingDriverStatus + `: ${getDebugMessage(e)}`);
     }
@@ -539,7 +563,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     const map = mapInstanceRef.current;
     if(!map) return;
     
-    // Set initial size based on current zoom to avoid flicker
     const zoom = map.getZoom();
     const baseDim = getScaledMarkerBaseDimension(zoom);
     const iconHeight = baseDim * (42 / 32);
@@ -587,17 +610,15 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         setShowIncomingDrawer(false);
 
         if (acceptedRide.is_third_party) {
-            // For third-party rides, use the name/phone from the ride request itself.
             setCurrentPassengerDetails({
-                id: acceptedRide.passenger_id, // Booker's ID for reference
+                id: acceptedRide.passenger_id,
                 fullName: acceptedRide.passenger_name,
                 phoneNumber: acceptedRide.passenger_phone,
-                profilePicUrl: null // No profile picture for third-party passengers
+                profilePicUrl: null
             });
             setIsLoadingPassengerDetails(false);
             setPassengerDetailsError(null);
         } else {
-            // For self-booked rides, fetch the passenger's full profile.
             setIsLoadingPassengerDetails(true);
             setPassengerDetailsError(null);
             profileService.fetchUserDetailsById(acceptedRide.passenger_id)
@@ -710,7 +731,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     }
     
     setIsCalculatingFare(true);
-    // Artificial delay for better UX, showing the calculation modal briefly
     await new Promise(resolve => setTimeout(resolve, 500));
 
     const finalFare = currentTrip.estimated_fare;
@@ -732,7 +752,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         setIsCalculatingFare(false);
         console.error("Critical Error: Failed to update trip status to completed.", getDebugMessage(error));
         alert(isRTL ? "خطای حیاتی در پایان سفر رخ داد." : "A critical error occurred while ending the trip.");
-        resetTripState(); // Reset as a last resort
+        resetTripState();
     }
   };
 
@@ -755,7 +775,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     } catch (error: any) {
         console.error("Error submitting driver cancellation:", getDebugMessage(error), error);
         alert(t.errorSubmittingCancellation + `\n\n${getDebugMessage(error)}`);
-        resetTripState(); // Reset anyway
+        resetTripState();
     } finally {
         setIsCancellationModalOpen(false);
         setIsSubmittingCancellation(false);
@@ -805,18 +825,15 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         setIsAddingPlace(true);
         try {
             await profileService.addUserDefinedPlace(placeName, driverLocation.lat, driverLocation.lng, loggedInUserId);
-            // Optionally show a success toast/message
-            refetchUserPlaces(); // Re-fetch places to show the new one immediately
+            refetchUserPlaces();
             setIsAddPlaceModalOpen(false);
         } catch (error) {
             console.error("Error adding user-defined place:", getDebugMessage(error));
-            // Show an error message in the modal or as a toast
         } finally {
             setIsAddingPlace(false);
         }
     };
   
-  // Trip recovery effect
   useEffect(() => {
     const recoverTrip = async () => {
       if (!loggedInUserId || currentTrip) { return; }
@@ -888,10 +905,10 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
         const zoom = map.getZoom();
         const baseDim = getScaledMarkerBaseDimension(zoom);
         
-        const iconHeight = baseDim * (42 / 32); // Aspect ratio of 32:42
+        const iconHeight = baseDim * (42 / 32);
         const iconSize: [number, number] = [baseDim, iconHeight];
         
-        const iconAnchor: L.PointExpression = [baseDim / 2, iconHeight]; // Bottom-center
+        const iconAnchor: L.PointExpression = [baseDim / 2, iconHeight];
 
         if (tripOriginMarkerRef.current) {
             const originIconHTML = ReactDOMServer.renderToString(<LocationMarkerIcon color="#FF8C00" style={{ filter: 'drop-shadow(0px 0px 2px rgba(0,0,0,0.7))', width: `${baseDim}px`, height: `${iconHeight}px` }}/>);
@@ -915,15 +932,12 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     };
 
     map.on('zoomend', handleZoom);
-    handleZoom(); // Initial call to set size
+    handleZoom();
 
     return () => {
         map.off('zoomend', handleZoom);
     };
   }, [currentTrip, mapInstanceRef.current]);
-
-
-  // --- STYLES ---
 
   const driverDashboardPageStyle: CSSProperties = { fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', direction: isRTL ? 'rtl' : 'ltr', width: '100%', height: '100vh', position: 'relative', overflow: 'hidden', };
   const mapBackgroundStyle: CSSProperties = { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0, };
@@ -940,9 +954,6 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
     width: '100%',
   };
   
-  const statusToggleContainerStyle: CSSProperties = {
-    perspective: '500px', // For 3D effect
-  };
   const statusToggleStyle = (isPressed: boolean): CSSProperties => ({ 
     width: '4rem', height: '4rem',
     backgroundColor: isOnline ? '#2ECC71' : '#95A5A6', 
@@ -971,12 +982,8 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
       transition: 'all 0.2s ease-out',
       opacity: isDisabled ? 0.6 : 1,
-      position: 'relative', // For badge positioning
+      position: 'relative',
   });
-  const iconButtonHoverStyle: CSSProperties = {
-      transform: 'translateY(-2px)',
-      boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-  };
 
   const badgeStyle: CSSProperties = { 
     position: 'absolute',
@@ -1016,7 +1023,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
   const fareModalTitleStyle: CSSProperties = { fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '1.5rem', lineHeight: 1.6 };
   const fareModalOkButtonStyle: CSSProperties = { width: '100%', padding: '0.875rem 1rem', fontSize: '1rem', fontWeight: 600, color: 'white', backgroundColor: '#28a745', border: 'none', borderRadius: '0.5rem', cursor: 'pointer', transition: 'background-color 0.2s', };
   const fareCalculationModalStyle: CSSProperties = { ...fareModalContentStyle, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' };
-
+  const handleOpenChat = () => setIsChatModalOpen(true);
 
   return (
     <div style={driverDashboardPageStyle}>
@@ -1024,7 +1031,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       <div ref={mapContainerRef} style={mapBackgroundStyle} />
       <div style={contentOverlayStyle}>
         <header style={headerStyle}>
-          <div style={statusToggleContainerStyle}>
+          <div style={{perspective: '500px'}}>
             <button 
               style={statusToggleStyle(isTogglePressed)} 
               onClick={toggleOnlineStatus}
@@ -1040,20 +1047,20 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             </button>
           </div>
           <div style={headerActionsStyle}>
-             <button style={iconButtonStyle(!isOnline)} onMouseEnter={(e) => {if (isOnline) e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'}} onMouseLeave={(e) => {if (isOnline) e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'}} onClick={() => setIsAddPlaceModalOpen(true)} aria-label={t.addText} disabled={!isOnline}>
+             <button style={iconButtonStyle(!isOnline)} onClick={() => setIsAddPlaceModalOpen(true)} aria-label={t.addText} disabled={!isOnline}>
                 <AddLocationIcon />
             </button>
-            <button style={iconButtonStyle(!!currentTrip)} onMouseEnter={(e) => {if (!currentTrip) e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'}} onMouseLeave={(e) => {if (!currentTrip) e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'}} onClick={() => setShowIncomingDrawer(true)} aria-label={t.requestsButton} aria-haspopup="true" aria-expanded={showIncomingDrawer} disabled={!!currentTrip} > 
+            <button style={iconButtonStyle(!!currentTrip)} onClick={() => setShowIncomingDrawer(true)} aria-label={t.requestsButton} aria-haspopup="true" aria-expanded={showIncomingDrawer} disabled={!!currentTrip} > 
                 <ListIcon /> 
                 {allPendingRequests.length > 0 && <span style={badgeStyle}>{allPendingRequests.length}</span>} 
             </button>
-            <button style={iconButtonStyle(!currentTrip)} onMouseEnter={(e) => {if (currentTrip) e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'}} onMouseLeave={(e) => {if (currentTrip) e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'}} onClick={() => setShowCurrentTripDrawer(true)} aria-label={t.activeTripButton} aria-haspopup="true" aria-expanded={showCurrentTripDrawer} disabled={!currentTrip} > 
+            <button style={iconButtonStyle(!currentTrip)} onClick={() => setShowCurrentTripDrawer(true)} aria-label={t.activeTripButton} aria-haspopup="true" aria-expanded={showCurrentTripDrawer} disabled={!currentTrip} > 
                 <CarIcon /> 
             </button>
-            <button style={iconButtonStyle(false)} onMouseEnter={(e) => e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'} onMouseLeave={(e) => e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'} onClick={() => setShowProfileModal(true)} aria-label={t.profileButtonAriaLabel} > 
+            <button style={iconButtonStyle(false)} onClick={() => setShowProfileModal(true)} aria-label={t.profileButtonAriaLabel} > 
                 <ProfileIcon /> 
             </button>
-            <button style={iconButtonStyle(false)} onMouseEnter={(e) => e.currentTarget.style.cssText += 'transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15);'} onMouseLeave={(e) => e.currentTarget.style.cssText += 'transform: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'} onClick={onLogout} aria-label={t.logoutButton}> 
+            <button style={iconButtonStyle(false)} onClick={onLogout} aria-label={t.logoutButton}> 
                 <LogoutIcon />
             </button>
           </div>
@@ -1073,7 +1080,7 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
             )}
         </div>
       </div>
-      <button style={gpsFabStyle} onClick={handleLocateDriver} aria-label={t.gpsButtonAriaLabel} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'} onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'} onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'} > <GpsIcon style={{ color: '#007AFF', width: '1.75rem', height: '1.75rem' }} /> </button>
+      <button style={gpsFabStyle} onClick={handleLocateDriver} aria-label={t.gpsButtonAriaLabel} > <GpsIcon style={{ color: '#007AFF', width: '1.75rem', height: '1.75rem' }} /> </button>
       {requestInPopup && isOnline && isUserVerified && !currentTrip && ( <NewRideRequestPopup currentLang={currentLang} request={requestInPopup} allAppServices={allAppServices} timer={popupTimer} onAccept={() => handleAcceptRequest(requestInPopup)} onDecline={handleDeclineRequestFromPopup} driverLocation={driverLocation} /> )}
       <DriverProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} currentLang={currentLang} loggedInUserId={loggedInUserId} />
       <AddPlaceModal isOpen={isAddPlaceModalOpen} onClose={() => setIsAddPlaceModalOpen(false)} onSubmit={handleAddPlaceSubmit} isSubmitting={isAddingPlace} currentLang={currentLang}/>
@@ -1144,10 +1151,20 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
                 onStartTrip={handleStartTrip}
                 onEndTrip={handleEndTrip}
                 onCancelTrip={handleCancelTrip}
+                onOpenChat={handleOpenChat}
             />
         )}
         {!currentTrip && <p style={noDataTextStyle}>{t.noActiveTrip}</p>}
       </DrawerPanel>
+      {isChatModalOpen && currentTrip && loggedInUserId && (
+          <ChatModal 
+              isOpen={isChatModalOpen}
+              onClose={() => setIsChatModalOpen(false)}
+              rideRequestId={currentTrip.id}
+              otherPartyName={currentPassengerDetails?.fullName || currentTrip.passenger_name || t.defaultPassengerName}
+              otherPartyId={currentTrip.passenger_id}
+          />
+      )}
       {isCancellationModalOpen && currentTrip && (
           <CancellationModal
               isOpen={isCancellationModalOpen}

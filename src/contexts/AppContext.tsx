@@ -14,6 +14,7 @@ export interface AppContextType {
   appServiceCategories: AppServiceCategory[];
   isLoadingServicesGlobal: boolean;
   serviceFetchErrorGlobal: string | null;
+  showToast: (message: string, type?: 'error' | 'success' | 'info') => void;
 }
 
 // Create a context with a default value (can be undefined or a sensible default)

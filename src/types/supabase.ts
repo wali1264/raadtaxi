@@ -10,6 +10,55 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      chat_messages: {
+        Row: {
+          id: string
+          created_at: string
+          ride_request_id: string
+          sender_id: string
+          receiver_id: string
+          message_text: string
+          is_read: boolean
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          ride_request_id: string
+          sender_id: string
+          receiver_id: string
+          message_text: string
+          is_read?: boolean
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          ride_request_id?: string
+          sender_id?: string
+          receiver_id?: string
+          message_text?: string
+          is_read?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_ride_request_id_fkey"
+            columns: ["ride_request_id"]
+            referencedRelation: "ride_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_sender_id_fkey"
+            columns: ["sender_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_receiver_id_fkey"
+            columns: ["receiver_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       driver_locations: {
         Row: {
           driver_id: string
