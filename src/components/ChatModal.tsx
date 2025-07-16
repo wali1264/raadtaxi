@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, CSSProperties } from 'react';
 import { supabase } from '../services/supabase';
 import { ChatMessage } from '../types';
@@ -39,9 +40,14 @@ export const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose, rideReque
                     const initialMessages = await chatService.getMessagesForRide(rideRequestId);
                     setMessages(initialMessages);
                     await chatService.markMessagesAsRead(rideRequestId, loggedInUserId);
-                } catch (e) {
-                    setError("Error loading messages.");
-                    console.error("Failed to fetch initial messages:", getDebugMessage(e), e);
+                } catch (e: any) {
+                    const errorMessage = getDebugMessage(e);
+                    if (errorMessage.includes('relation "public.chat_messages" does not exist')) {
+                        setError(t.errorChatTableMissing);
+                    } else {
+                        setError(t.errorLoadingChat);
+                    }
+                    console.error("Failed to fetch initial messages:", errorMessage, e);
                 } finally {
                     setIsLoading(false);
                 }
@@ -71,7 +77,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose, rideReque
                     .subscribe((status, err) => {
                         if (status === 'SUBSCRIBE_FAILED') {
                             console.error("Realtime subscription failed:", getDebugMessage(err), err);
-                            setError("Connection error. Chat may not update live.");
+                            setError(t.errorChatConnection);
                         }
                     });
             };
@@ -85,7 +91,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose, rideReque
                 realtimeChannelRef.current = null;
             }
         };
-    }, [isOpen, rideRequestId, loggedInUserId, supabase]);
+    }, [isOpen, rideRequestId, loggedInUserId, supabase, t.errorChatTableMissing, t.errorLoadingChat, t.errorChatConnection]);
 
     useEffect(scrollToBottom, [messages]);
     
@@ -158,9 +164,9 @@ export const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose, rideReque
                     <button style={closeButtonStyle} onClick={onClose} aria-label={t.closeButton}><CloseIcon /></button>
                 </header>
                 <div style={messagesContainerStyle}>
-                    {isLoading && <p style={infoTextStyle}>Loading messages...</p>}
+                    {isLoading && <p style={infoTextStyle}>{t.loadingMessages}</p>}
                     {error && <p style={{...infoTextStyle, color: 'red'}}>{error}</p>}
-                    {!isLoading && messages.length === 0 && <p style={infoTextStyle}>{t.noMessagesYet}</p>}
+                    {!isLoading && !error && messages.length === 0 && <p style={infoTextStyle}>{t.noMessagesYet}</p>}
                     <div style={messagesListStyle}>
                         {messages.map(msg => (
                             <div key={msg.id} style={messageBubbleStyle(msg.sender_id === loggedInUserId)}>

@@ -264,6 +264,10 @@ const faTranslations = {
   errorSendingMessage: "خطا در ارسال پیام.",
   noMessagesYet: "هنوز پیامی وجود ندارد. اولین پیام را شما ارسال کنید!",
   messageRead: "خوانده شد",
+  errorLoadingChat: "خطا در بارگذاری پیام‌ها.",
+  errorChatConnection: "خطا در اتصال به چت. ممکن است پیام‌ها به صورت زنده به‌روزرسانی نشوند.",
+  errorChatTableMissing: "ویژگی چت در حال حاضر در دسترس نیست. لطفاً با پشتیبانی تماس بگیرید (جدول چت یافت نشد).",
+  loadingMessages: "در حال بارگذاری پیام‌ها...",
 };
 
 export type TranslationSet = typeof faTranslations;
@@ -531,6 +535,10 @@ const psTranslations: TranslationSet = {
   errorSendingMessage: "د پیغام په لیږلو کې تېروتنه.",
   noMessagesYet: "تر اوسه هیڅ پیغام نشته. لومړی پیغام تاسو واستوئ!",
   messageRead: "لوستل شوی",
+  errorLoadingChat: "د پیغامونو په بارولو کې تېروتنه.",
+  errorChatConnection: "د چټ سره په نښلولو کې تېروتنه. کیدای شي پیغامونه په ژوندۍ بڼه تازه نشي.",
+  errorChatTableMissing: "د چټ ځانګړتیا دا مهال شتون نلري. مهرباني وکړئ له ملاتړ سره اړیکه ونیسئ (جدول ونه موندل شو).",
+  loadingMessages: "پیغامونه بار کیږي...",
 };
 
 const enTranslations: TranslationSet = {
@@ -796,6 +804,10 @@ const enTranslations: TranslationSet = {
   errorSendingMessage: "Error sending message.",
   noMessagesYet: "No messages yet. Be the first to send one!",
   messageRead: "Read",
+  errorLoadingChat: "Error loading messages.",
+  errorChatConnection: "Connection error. Chat may not update live.",
+  errorChatTableMissing: "Chat feature is currently unavailable. Please contact support (chat table not found).",
+  loadingMessages: "Loading messages...",
 };
 
 export const translations: Record<Language, TranslationSet> = {

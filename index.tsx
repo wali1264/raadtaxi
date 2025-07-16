@@ -6,11 +6,15 @@ import App from './src/App'; // Import the App component from src/App.tsx
 // PWA Service Worker Registration
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(registration => {
-      console.log('ServiceWorker registration successful with scope: ', registration.scope);
-    }, err => {
-      console.log('ServiceWorker registration failed: ', err);
-    });
+    try {
+      navigator.serviceWorker.register('/sw.js').then(registration => {
+        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+      }, err => {
+        console.log('ServiceWorker registration failed (in promise): ', err);
+      });
+    } catch (e) {
+        console.warn('ServiceWorker registration failed (synchronous exception): ', e);
+    }
   });
 }
 

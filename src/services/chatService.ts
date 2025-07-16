@@ -1,9 +1,14 @@
-// DEVELOPER NOTE: The application is failing because the 'chat_messages' table is missing in the database.
-// To fix the "relation public.chat_messages does not exist" errors, please run the following SQL script
-// in your Supabase project's SQL Editor. This will create the necessary table and security policies for the chat feature.
+// DEVELOPER NOTE: The application is failing because the 'chat_messages' table is missing.
+// To fix this, run one of the SQL scripts below in your Supabase SQL Editor.
+
+// --- SCRIPT 1: SAFER, NON-DESTRUCTIVE (Recommended for first-time setup) ---
+// This script avoids using DROP commands and should not trigger Supabase's "destructive query" warning.
+// IMPORTANT: This script can only be run successfully ONCE. If you need to re-run it,
+// you must manually delete the 'chat_messages' table and its policies from the Supabase UI first,
+// or use Script 2 below.
 /*
 -- 1. Create the chat_messages table
-CREATE TABLE IF NOT EXISTS public.chat_messages (
+CREATE TABLE public.chat_messages (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     ride_request_id uuid NOT NULL,
@@ -17,45 +22,64 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
     CONSTRAINT chat_messages_receiver_id_fkey FOREIGN KEY (receiver_id) REFERENCES public.users(id) ON DELETE CASCADE
 );
 
--- Add comments to the table and columns for clarity
+-- Add comments for clarity
 COMMENT ON TABLE public.chat_messages IS 'Stores chat messages between passengers and drivers for a specific ride.';
 COMMENT ON COLUMN public.chat_messages.sender_id IS 'The user who sent the message.';
 COMMENT ON COLUMN public.chat_messages.receiver_id IS 'The user who should receive the message.';
 COMMENT ON COLUMN public.chat_messages.is_read IS 'True if the receiver has read the message.';
 
-
--- 2. Enable Row Level Security (RLS) for the table
+-- 2. Enable Row Level Security (RLS)
 ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 
--- 3. Create RLS policies
---    - Allow users to see messages they've sent or received.
---    - Allow users to send messages (insert new rows) only as themselves.
---    - Allow users to update messages only if they are the receiver (e.g., to mark as read).
-
--- Drop existing policies before creating new ones to avoid errors on re-runs
-DROP POLICY IF EXISTS "Allow read for sender or receiver" ON public.chat_messages;
-DROP POLICY IF EXISTS "Allow insert for sender" ON public.chat_messages;
-DROP POLICY IF EXISTS "Allow update for receiver" ON public.chat_messages;
-
--- Create SELECT policy
+-- 3. Create RLS policies for secure access
 CREATE POLICY "Allow read for sender or receiver" ON public.chat_messages
 FOR SELECT USING (
   auth.uid() = sender_id OR auth.uid() = receiver_id
 );
 
--- Create INSERT policy
 CREATE POLICY "Allow insert for sender" ON public.chat_messages
 FOR INSERT WITH CHECK (
   auth.uid() = sender_id
 );
 
--- Create UPDATE policy
 CREATE POLICY "Allow update for receiver" ON public.chat_messages
 FOR UPDATE USING (
   auth.uid() = receiver_id
 );
-
 */
+
+
+// --- SCRIPT 2: ROBUST, RE-RUNNABLE (May trigger a "destructive" warning) ---
+// This script includes DROP commands, which makes it easy to re-run without errors.
+// Supabase flags this as "destructive" as a safety measure. You can safely
+// confirm and run it if you understand it's just refreshing the policies.
+/*
+CREATE TABLE IF NOT EXISTS public.chat_messages (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    ride_request_id uuid NOT NULL,
+    sender_id uuid NOT NULL,
+    receiver_id uuid NOT NULL,
+    message_text text NOT NULL CHECK (char_length(message_text) > 0),
+    is_read boolean NOT NULL DEFAULT false,
+    CONSTRAINT chat_messages_pkey PRIMARY KEY (id),
+    CONSTRAINT chat_messages_ride_request_id_fkey FOREIGN KEY (ride_request_id) REFERENCES public.ride_requests(id) ON DELETE CASCADE,
+    CONSTRAINT chat_messages_sender_id_fkey FOREIGN KEY (sender_id) REFERENCES public.users(id) ON DELETE CASCADE,
+    CONSTRAINT chat_messages_receiver_id_fkey FOREIGN KEY (receiver_id) REFERENCES public.users(id) ON DELETE CASCADE
+);
+COMMENT ON TABLE public.chat_messages IS 'Stores chat messages between passengers and drivers for a specific ride.';
+COMMENT ON COLUMN public.chat_messages.sender_id IS 'The user who sent the message.';
+COMMENT ON COLUMN public.chat_messages.receiver_id IS 'The user who should receive the message.';
+COMMENT ON COLUMN public.chat_messages.is_read IS 'True if the receiver has read the message.';
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow read for sender or receiver" ON public.chat_messages;
+DROP POLICY IF EXISTS "Allow insert for sender" ON public.chat_messages;
+DROP POLICY IF EXISTS "Allow update for receiver" ON public.chat_messages;
+CREATE POLICY "Allow read for sender or receiver" ON public.chat_messages FOR SELECT USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
+CREATE POLICY "Allow insert for sender" ON public.chat_messages FOR INSERT WITH CHECK (auth.uid() = sender_id);
+CREATE POLICY "Allow update for receiver" ON public.chat_messages FOR UPDATE USING (auth.uid() = receiver_id);
+*/
+
 
 import { supabase } from './supabase';
 import { ChatMessage } from '../types';
