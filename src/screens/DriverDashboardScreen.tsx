@@ -511,37 +511,32 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
 
     const newStatus = !isOnline;
 
-    if (!newStatus) {
+    if (!newStatus) { // Logic for going OFFLINE
       setIsOnline(false);
       try {
         await profileService.updateDriverOnlineStatus(loggedInUserId, false);
       } catch (e: any) {
-        setIsOnline(true);
+        setIsOnline(true); // Revert UI on failure
         alert(t.errorUpdatingDriverStatus + `: ${getDebugMessage(e)}`);
       }
       return;
     }
 
-    try {
-      if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-        const unsupportedMessage = isRTL 
-          ? 'مرورگر شما از اعلان‌ها پشتیبانی نمی‌کند. برای دریافت درخواست‌ها، لطفاً از مرورگر دیگری مانند کروم یا فایرفاکس استفاده کنید.' 
-          : 'Your browser does not support push notifications. To receive requests, please use another browser like Chrome or Firefox.';
-        throw new Error(unsupportedMessage);
-      }
-
-      if (Notification.permission === 'denied') {
-        throw new Error(t.notificationPermissionDenied);
-      }
-      
-      await notificationService.subscribeUser(loggedInUserId);
-      console.log('Successfully subscribed for push notifications.');
-
-    } catch (subError: any) {
-      alert(getDebugMessage(subError)); 
-      return;
-    }
+    // --- Logic for going ONLINE ---
     
+    // 1. Set UI state and update DB status. This is the critical part.
+    setIsOnline(true);
+    try {
+      await profileService.updateDriverOnlineStatus(loggedInUserId, true);
+    } catch (e: any) {
+      setIsOnline(false); // Revert UI on failure
+      alert(t.errorUpdatingDriverStatus + `: ${getDebugMessage(e)}`);
+      return; // Stop if this fails
+    }
+
+    // 2. If status update is successful, perform non-critical setup.
+    
+    // Unlock audio context for notification sounds.
     if (audioPlayerRef.current) {
       audioPlayerRef.current.src = SILENT_AUDIO_DATA_URI;
       audioPlayerRef.current.play().catch(e => {
@@ -549,18 +544,33 @@ export const DriverDashboardScreen = ({ onLogout }: DriverDashboardScreenProps):
       });
     }
 
-    setIsOnline(true);
+    // Fetch profile if it's not already loaded for the current user.
+    if (!driverProfile.userId || driverProfile.userId !== loggedInUserId) {
+      profileService.fetchDriverProfile(loggedInUserId)
+        .then(data => setDriverProfile(data))
+        .catch(err => console.error("Error fetching driver profile on going online:", err));
+    }
+
+    // 3. Attempt to subscribe to push notifications. This is non-blocking.
     try {
-      await profileService.updateDriverOnlineStatus(loggedInUserId, true);
-      
-      if (!driverProfile.userId || driverProfile.userId !== loggedInUserId) {
-        profileService.fetchDriverProfile(loggedInUserId)
-          .then(data => setDriverProfile(data))
-          .catch(err => console.error("Error fetching driver profile on going online:", err));
+      if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+        throw new Error(isRTL
+          ? 'مرورگر شما از اعلان‌ها پشتیبانی نمی‌کند. برای دریافت درخواست‌ها، لطفاً از مرورگر دیگری مانند کروم یا فایرفاکس استفاده کنید.'
+          : 'Your browser does not support push notifications. To receive requests, please use another browser like Chrome or Firefox.');
       }
-    } catch (e: any) {
-      setIsOnline(false);
-      alert(t.errorUpdatingDriverStatus + `: ${getDebugMessage(e)}`);
+
+      if (Notification.permission === 'denied') {
+        throw new Error(t.notificationPermissionDenied);
+      }
+
+      // The actual subscription attempt.
+      await notificationService.subscribeUser(loggedInUserId);
+      console.log('Successfully subscribed for push notifications.');
+
+    } catch (subError: any) {
+      // If subscription fails, show a non-blocking toast and log a warning. The user is still online.
+      showToast(t.notificationPermissionDenied, 'error');
+      console.warn('Push notification subscription failed, but the driver is now online. Error:', getDebugMessage(subError));
     }
   };
 
