@@ -13,7 +13,6 @@ export interface DbService {
   name_key: string;
   description_key: string;
   image_identifier: string;
-  base_fare: number | null;
   price_per_km: number | null;
   price_per_minute: number | null;
   category: string;
@@ -27,9 +26,8 @@ export interface AppService {
     id: string;
     nameKey: keyof TranslationSet;
     descKey: keyof TranslationSet;
-    price?: number;
-    pricePerKm?: number;
-    minFare?: number | null;
+    pricePerKm: number;
+    minFare: number | null;
     imageComponent: React.FC<{ style?: CSSProperties }>;
     category: string;
 }

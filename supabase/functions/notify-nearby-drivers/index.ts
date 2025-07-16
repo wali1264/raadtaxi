@@ -1,3 +1,8 @@
+
+declare global {
+  const Deno: any;
+}
+
 // File: supabase/functions/notify-nearby-drivers/index.ts
 
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -25,7 +30,7 @@ const corsHeaders = {
 };
 
 // --- Main Function ---
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });

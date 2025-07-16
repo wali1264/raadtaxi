@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, CSSProperties } from 'react';
 import { supabase } from '../services/supabase';
 import { translations, Language, TranslationSet } from '../translations';
@@ -35,7 +36,7 @@ export const useAppServices = (currentLang: Language) => {
     try {
       const { data, error } = await supabase
         .from('services')
-        .select('*')
+        .select('id, name_key, description_key, image_identifier, price_per_km, category, min_fare, is_active')
         .eq('is_active', true);
 
       if (error) {
@@ -79,8 +80,7 @@ export const useAppServices = (currentLang: Language) => {
               id: dbService.id,
               nameKey: nameKey,
               descKey: descKey,
-              price: undefined, // Per user request, no base fare
-              pricePerKm: pricePerKm, // Use hardcoded rate
+              pricePerKm: pricePerKm,
               minFare: dbService.min_fare,
               imageComponent: imageComponent,
               category: dbService.category,
@@ -111,7 +111,7 @@ export const useAppServices = (currentLang: Language) => {
     } finally {
       setIsLoadingServices(false);
     }
-  }, [currentLang, t.fetchingServicesError, t.serviceCategoryPassenger, t.serviceCategoryCargo, t.serviceCategoryCourier, t.defaultServiceName, t.defaultServiceDesc]);
+  }, [currentLang, t]);
 
   useEffect(() => {
     fetchAndProcessServices();

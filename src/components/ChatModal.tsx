@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, CSSProperties } from 'react';
 import { supabase } from '../services/supabase';
 import { ChatMessage } from '../types';
@@ -68,14 +67,45 @@ export const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose, rideReque
                         },
                         async (payload) => {
                             const receivedMessage = payload.new as ChatMessage;
-                            setMessages(prev => [...prev, receivedMessage]);
+
+                            setMessages(currentMessages => {
+                                // If the message is from the current user, it's the confirmation of our optimistic update.
+                                if (receivedMessage.sender_id === loggedInUserId) {
+                                    let tempMessageFound = false;
+                                    // Replace the temporary message with the real one from the DB.
+                                    const updatedMessages = currentMessages.map(msg => {
+                                        if (msg.id.startsWith('temp_') && !tempMessageFound) {
+                                            tempMessageFound = true;
+                                            return receivedMessage;
+                                        }
+                                        return msg;
+                                    });
+
+                                    // If no temp message was replaced (e.g., message sent from another device),
+                                    // and the message isn't already in the list, add it.
+                                    if (!tempMessageFound && !updatedMessages.some(m => m.id === receivedMessage.id)) {
+                                        return [...updatedMessages, receivedMessage];
+                                    }
+                                    
+                                    return updatedMessages;
+
+                                } else { // This is a message from the other party.
+                                    // Just add it if it doesn't already exist.
+                                    if (currentMessages.some(m => m.id === receivedMessage.id)) {
+                                        return currentMessages;
+                                    }
+                                    return [...currentMessages, receivedMessage];
+                                }
+                            });
+    
+                            // Mark as read if it's an incoming message for us.
                             if (receivedMessage.receiver_id === loggedInUserId) {
                                 await chatService.markMessagesAsRead(rideRequestId, loggedInUserId);
                             }
                         }
                     )
                     .subscribe((status, err) => {
-                        if (status === 'SUBSCRIBE_FAILED') {
+                        if (status === 'CHANNEL_ERROR') {
                             console.error("Realtime subscription failed:", getDebugMessage(err), err);
                             setError(t.errorChatConnection);
                         }
@@ -91,7 +121,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose, rideReque
                 realtimeChannelRef.current = null;
             }
         };
-    }, [isOpen, rideRequestId, loggedInUserId, supabase, t.errorChatTableMissing, t.errorLoadingChat, t.errorChatConnection]);
+    }, [isOpen, rideRequestId, loggedInUserId, t.errorChatTableMissing, t.errorLoadingChat, t.errorChatConnection]);
 
     useEffect(scrollToBottom, [messages]);
     
