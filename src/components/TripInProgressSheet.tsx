@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, CSSProperties, useCallback } from 'react';
 import { supabase } from '../services/supabase';
-import { RealtimeChannel } from '@supabase/supabase-js';
 import { translations, Language } from '../translations';
 import { AppService, DriverDetails, TripPhase, TripSheetDisplayLevel, ChatMessage } from '../types';
 import { StarRating } from './StarRating';
@@ -42,7 +41,7 @@ export const TripInProgressSheet: React.FC<TripInProgressSheetProps> = ({
   const isRTL = currentLang !== 'en';
   
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
-  const chatToastChannelRef = useRef<RealtimeChannel | null>(null);
+  const chatToastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartInfo = useRef({ y: 0, sheetHeight: 0 });

@@ -38,6 +38,26 @@ export interface Database {
           message_text?: string
           is_read?: boolean
         }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_ride_request_id_fkey"
+            columns: ["ride_request_id"]
+            referencedRelation: "ride_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_sender_id_fkey"
+            columns: ["sender_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_receiver_id_fkey"
+            columns: ["receiver_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       driver_locations: {
         Row: {
@@ -61,13 +81,21 @@ export interface Database {
           longitude?: number
           timestamp?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "driver_locations_driver_id_fkey"
+            columns: ["driver_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       drivers_profile: {
         Row: {
           alert_sound_preference: string | null
           alert_sound_volume: number | null
           created_at: string
-          current_status: Database["public"]["Enums"]["driver_status"] | null
+          current_status: string | null
           plate_numbers: string | null
           plate_region: string | null
           plate_type_char: string | null
@@ -80,7 +108,7 @@ export interface Database {
           alert_sound_preference?: string | null
           alert_sound_volume?: number | null
           created_at?: string
-          current_status?: Database["public"]["Enums"]["driver_status"] | null
+          current_status?: string | null
           plate_numbers?: string | null
           plate_region?: string | null
           plate_type_char?: string | null
@@ -93,7 +121,7 @@ export interface Database {
           alert_sound_preference?: string | null
           alert_sound_volume?: number | null
           created_at?: string
-          current_status?: Database["public"]["Enums"]["driver_status"] | null
+          current_status?: string | null
           plate_numbers?: string | null
           plate_region?: string | null
           plate_type_char?: string | null
@@ -102,6 +130,14 @@ export interface Database {
           vehicle_color?: string | null
           vehicle_model?: string | null
         }
+        Relationships: [
+          {
+            foreignKeyName: "drivers_profile_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       push_subscriptions: {
         Row: {
@@ -122,11 +158,19 @@ export interface Database {
           subscription?: Json
           created_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "push_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       ride_cancellations: {
         Row: {
           cancelled_by_user_id: string
-          canceller_role: Database["public"]["Enums"]["user_role"]
+          canceller_role: string
           created_at: string
           custom_reason: string | null
           id: number
@@ -135,7 +179,7 @@ export interface Database {
         }
         Insert: {
           cancelled_by_user_id: string
-          canceller_role: Database["public"]["Enums"]["user_role"]
+          canceller_role: string
           created_at?: string
           custom_reason?: string | null
           id?: number
@@ -144,13 +188,27 @@ export interface Database {
         }
         Update: {
           cancelled_by_user_id?: string
-          canceller_role?: Database["public"]["Enums"]["user_role"]
+          canceller_role?: string
           created_at?: string
           custom_reason?: string | null
           id?: number
           reason_key?: string
           ride_request_id?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "ride_cancellations_cancelled_by_user_id_fkey"
+            columns: ["cancelled_by_user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ride_cancellations_ride_request_id_fkey"
+            columns: ["ride_request_id"]
+            referencedRelation: "ride_requests"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       ride_requests: {
         Row: {
@@ -175,7 +233,7 @@ export interface Database {
           route_to_destination_polyline: string | null
           route_to_origin_polyline: string | null
           service_id: string
-          status: Database["public"]["Enums"]["ride_status"]
+          status: string
           trip_started_at: string | null
           updated_at: string
         }
@@ -201,7 +259,7 @@ export interface Database {
           route_to_destination_polyline?: string | null
           route_to_origin_polyline?: string | null
           service_id: string
-          status: Database["public"]["Enums"]["ride_status"]
+          status: string
           trip_started_at?: string | null
           updated_at?: string
         }
@@ -227,10 +285,30 @@ export interface Database {
           route_to_destination_polyline?: string | null
           route_to_origin_polyline?: string | null
           service_id?: string
-          status?: Database["public"]["Enums"]["ride_status"]
+          status?: string
           trip_started_at?: string | null
           updated_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "ride_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ride_requests_passenger_id_fkey"
+            columns: ["passenger_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ride_requests_service_id_fkey"
+            columns: ["service_id"]
+            referencedRelation: "services"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       services: {
         Row: {
@@ -272,6 +350,7 @@ export interface Database {
           price_per_km?: number | null
           price_per_minute?: number | null
         }
+        Relationships: []
       }
       user_defined_places: {
         Row: {
@@ -295,6 +374,14 @@ export interface Database {
           name?: string
           user_id?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "user_defined_places_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       users: {
         Row: {
@@ -305,7 +392,7 @@ export interface Database {
           is_verified: boolean
           phone_number: string | null
           profile_pic_url: string | null
-          role: Database["public"]["Enums"]["user_role"] | null
+          role: string | null
           updated_at: string
         }
         Insert: {
@@ -316,7 +403,7 @@ export interface Database {
           is_verified?: boolean
           phone_number?: string | null
           profile_pic_url?: string | null
-          role?: Database["public"]["Enums"]["user_role"] | null
+          role?: string | null
           updated_at?: string
         }
         Update: {
@@ -327,9 +414,10 @@ export interface Database {
           is_verified?: boolean
           phone_number?: string | null
           profile_pic_url?: string | null
-          role?: Database["public"]["Enums"]["user_role"] | null
+          role?: string | null
           updated_at?: string
         }
+        Relationships: []
       }
     }
     Views: {
@@ -377,19 +465,6 @@ export interface Database {
       }
     }
     Enums: {
-      driver_status: "online" | "offline"
-      ride_status:
-        | "pending"
-        | "accepted"
-        | "driver_en_route_to_origin"
-        | "trip_started"
-        | "driver_at_destination"
-        | "trip_completed"
-        | "cancelled"
-        | "cancelled_by_driver"
-        | "cancelled_by_passenger"
-        | "timed_out_passenger"
-        | "no_drivers_available"
       user_role: "passenger" | "driver"
     }
     CompositeTypes: {

@@ -1,4 +1,3 @@
-
 import { useState, useCallback, useRef } from 'react';
 import L from 'leaflet';
 import { tripService, profileService } from '../services';
@@ -10,7 +9,7 @@ export const useDriverTripManager = (
     onTripStateReset: () => void,
     onRouteDraw: (coords: L.LatLngExpression[], color: string, fitBounds?: boolean) => void,
     onTripMarkersDraw: (origin: L.LatLngTuple, dest: L.LatLngTuple | null) => void,
-    driverLocation: { lat: number; lng: number } | null
+    driverLocation: { lat: number, lng: number } | null
 ) => {
     const { t } = useAppContext();
     const [currentTrip, setCurrentTrip] = useState<RideRequest | null>(null);
@@ -34,7 +33,6 @@ export const useDriverTripManager = (
         setPassengerDetailsError(null);
         setIsNavigating(false);
         setIsCalculatingFare(false);
-        setFareSummary(null); // Clear fare summary on reset
         onTripStateReset();
     }, [onTripStateReset]);
 
@@ -76,50 +74,29 @@ export const useDriverTripManager = (
         const routeCoords = await fetchOsrmRoute(driverPos, pickupPos);
         if (routeCoords) onRouteDraw(routeCoords, '#007bff');
         onTripMarkersDraw(pickupPos, null);
-    };
-    
-    const handleArrivedAtPickup = async () => {
-        if (!currentTrip) return;
+
         try {
             await tripService.updateRide(currentTrip.id, { driver_arrived_at_origin_at: new Date().toISOString() });
             setCurrentTripPhase(DriverTripPhase.AT_PICKUP);
         } catch (error) {
-            console.error("Error updating trip status on arrival at pickup:", getDebugMessage(error));
+            console.error("Error updating trip status on navigation:", getDebugMessage(error));
         }
     };
 
     const handleStartTrip = async () => {
-        if (!currentTrip) return;
+        if (!currentTrip || !driverLocation) return;
         try {
             await tripService.updateRide(currentTrip.id, { status: 'trip_started', trip_started_at: new Date().toISOString() });
             setCurrentTripPhase(DriverTripPhase.EN_ROUTE_TO_DESTINATION);
-            // After starting, immediately show route to destination
-            await handleNavigateToDestination();
+            const startPos: L.LatLngTuple = [driverLocation.lat, driverLocation.lng];
+            const destPos: L.LatLngTuple = [currentTrip.destination_lat, currentTrip.destination_lng];
+            const routeCoords = await fetchOsrmRoute(startPos, destPos);
+            if (routeCoords) onRouteDraw(routeCoords, '#28a745');
+            onTripMarkersDraw([currentTrip.origin_lat, currentTrip.origin_lng], destPos);
         } catch (error) {
             console.error("Error during trip start process:", getDebugMessage(error));
         }
     };
-
-    const handleNavigateToDestination = async () => {
-        if (!currentTrip || !driverLocation) return;
-        const startPos: L.LatLngTuple = [driverLocation.lat, driverLocation.lng];
-        const destPos: L.LatLngTuple = [currentTrip.destination_lat, currentTrip.destination_lng];
-        const routeCoords = await fetchOsrmRoute(startPos, destPos);
-        if (routeCoords) onRouteDraw(routeCoords, '#28a745');
-        onTripMarkersDraw([currentTrip.origin_lat, currentTrip.origin_lng], destPos);
-    };
-    
-    const handleArrivedAtDestination = async () => {
-        if (!currentTrip) return;
-        try {
-            await tripService.updateRide(currentTrip.id, { status: 'driver_at_destination', driver_arrived_at_destination_at: new Date().toISOString() });
-            setCurrentTripPhase(DriverTripPhase.AT_DESTINATION);
-            onTripStateReset(); // Clear route from map
-        } catch (error) {
-            console.error("Error updating trip status on arrival at destination:", getDebugMessage(error));
-        }
-    };
-
 
     const handleEndTrip = async () => {
         if (!currentTrip) return;
@@ -179,10 +156,7 @@ export const useDriverTripManager = (
         tripActions: {
             acceptTrip,
             handleNavigateToPickup,
-            handleArrivedAtPickup,
             handleStartTrip,
-            handleNavigateToDestination,
-            handleArrivedAtDestination,
             handleEndTrip,
             reset,
             openCancellationModal: () => setIsCancellationModalOpen(true),

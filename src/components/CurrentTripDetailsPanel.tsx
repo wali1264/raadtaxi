@@ -1,4 +1,3 @@
-
 import React, { CSSProperties } from 'react';
 import { RideRequest, PassengerDetails, DriverTripPhase } from '../types';
 import { translations, Language } from '../translations';
@@ -12,10 +11,7 @@ interface CurrentTripDetailsPanelProps {
     passengerFetchError: string | null;
     currentPhase: DriverTripPhase;
     onNavigateToPickup: () => void;
-    onArrivedAtPickup: () => void;
     onStartTrip: () => void;
-    onNavigateToDestination: () => void;
-    onArrivedAtDestination: () => void;
     onEndTrip: () => void;
     onCancelTrip: () => void;
     onOpenChat: () => void;
@@ -29,10 +25,7 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
     passengerFetchError,
     currentPhase,
     onNavigateToPickup,
-    onArrivedAtPickup,
     onStartTrip,
-    onNavigateToDestination,
-    onArrivedAtDestination,
     onEndTrip,
     onCancelTrip,
     onOpenChat,
@@ -105,13 +98,6 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
         gap: '0.75rem',
     };
 
-    const mainActionButtonStyle: CSSProperties = {
-        gridColumn: '1 / -1', // Span across both columns
-        padding: '0.875rem 1rem',
-        fontSize: '1rem',
-        fontWeight: 'bold',
-    };
-
     const actionButtonStyle: CSSProperties = {
         display: 'flex',
         alignItems: 'center',
@@ -125,86 +111,62 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
         cursor: 'pointer',
         transition: 'background-color 0.2s, opacity 0.2s',
     };
-    const primaryButtonStyle: CSSProperties = { ...actionButtonStyle, ...mainActionButtonStyle, backgroundColor: '#007bff' };
-    const successButtonStyle: CSSProperties = { ...actionButtonStyle, ...mainActionButtonStyle, backgroundColor: '#28a745' };
-    const dangerButtonStyle: CSSProperties = { ...actionButtonStyle, ...mainActionButtonStyle, backgroundColor: '#dc3545' };
-    
-    const secondaryButtonContainerStyle: CSSProperties = {
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '0.75rem',
-        marginTop: '1rem',
-        gridColumn: '1 / -1',
-    };
-
+    const navigateButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#007bff' };
+    const startButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#28a745' };
+    const endButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#dc3545' };
+    const cancelButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#6c757d' };
     const callButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#17a2b8' };
     const chatButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#6c757d' };
-    const cancelButtonStyle: CSSProperties = { ...actionButtonStyle, backgroundColor: '#6c757d', gridColumn: '1 / -1', marginTop: '0.5rem' };
-
     const disabledButtonStyle: CSSProperties = { backgroundColor: '#adb5bd', cursor: 'not-allowed' };
-    const buttonIconStyle: CSSProperties = { [isRTL ? 'marginLeft' : 'marginRight']: '0.5rem' };
-    const loadingErrorStyle: CSSProperties = { textAlign: 'center', color: '#718096', padding: '1rem 0', fontSize: '0.9rem' };
-    const dataMissingStyle: CSSProperties = { fontStyle: 'italic', color: '#718096' };
 
-    const handleCall = () => { if (passenger?.phoneNumber) window.location.href = `tel:${passenger.phoneNumber}`; };
+    const buttonIconStyle: CSSProperties = { [isRTL ? 'marginLeft' : 'marginRight']: '0.5rem' };
+    
+    const loadingErrorStyle: CSSProperties = {
+        textAlign: 'center',
+        color: '#718096',
+        padding: '1rem 0',
+        fontSize: '0.9rem',
+    };
+    const dataMissingStyle: CSSProperties = {
+      fontStyle: 'italic',
+      color: '#718096',
+    };
+
+    const handleCall = () => {
+        if (passenger?.phoneNumber) {
+            window.location.href = `tel:${passenger.phoneNumber}`;
+        }
+    };
 
     const renderPassengerInfo = () => {
         if (isLoadingPassenger) return <p style={loadingErrorStyle}>{t.passengerDetailsLoading}</p>;
         if (passengerFetchError) return <p style={{...loadingErrorStyle, color: 'red'}}>{passengerFetchError}</p>;
         
-        const passengerImageUrl = passenger?.profilePicUrl || `https://ui-avatars.com/api/?name=${(passenger?.fullName || trip.passenger_name || 'P').replace(' ', '+')}&background=random`;
+        let passengerImageUrl: string | undefined;
+        if (passenger?.profilePicUrl) {
+            try {
+                const parsed = JSON.parse(passenger.profilePicUrl);
+                passengerImageUrl = parsed.url;
+            } catch (e) {
+                passengerImageUrl = passenger.profilePicUrl;
+            }
+        }
 
         return (
             <div style={passengerInfoContainerStyle}>
-                <img src={passengerImageUrl} alt={t.profilePictureLabelAltText} style={profilePicStyle} />
+                {passengerImageUrl ? (
+                    <img src={passengerImageUrl} alt={t.profilePictureLabelAltText} style={profilePicStyle} />
+                ) : (
+                    <UserCircleIcon style={profilePicStyle} />
+                )}
                 <p style={passengerNameStyle}>{passenger?.fullName || trip.passenger_name || <span style={dataMissingStyle}>{t.dataMissing}</span>}</p>
             </div>
         );
     };
 
-    const renderMainAction = () => {
-        switch (currentPhase) {
-            case DriverTripPhase.EN_ROUTE_TO_PICKUP:
-                return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <button style={primaryButtonStyle} onClick={onNavigateToPickup}>
-                            <NavigationIcon style={buttonIconStyle} />
-                            {t.navigateToPickupButtonLabel}
-                        </button>
-                        <button style={successButtonStyle} onClick={onArrivedAtPickup}>
-                            {t.driverArrivedAtPickupButtonLabel}
-                        </button>
-                    </div>
-                );
-            case DriverTripPhase.AT_PICKUP:
-                return (
-                    <button style={successButtonStyle} onClick={onStartTrip}>
-                        {t.startTripButtonLabel}
-                    </button>
-                );
-            case DriverTripPhase.EN_ROUTE_TO_DESTINATION:
-                 return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <button style={primaryButtonStyle} onClick={onNavigateToDestination}>
-                             <NavigationIcon style={buttonIconStyle} />
-                            {t.navigateToDestinationButtonLabel}
-                        </button>
-                        <button style={successButtonStyle} onClick={onArrivedAtDestination}>
-                            {t.driverArrivedAtDestinationButtonLabel}
-                        </button>
-                    </div>
-                );
-            case DriverTripPhase.AT_DESTINATION:
-                 return (
-                    <button style={dangerButtonStyle} onClick={onEndTrip}>
-                        {t.endTripButtonLabel}
-                    </button>
-                );
-            default:
-                return null;
-        }
-    };
-
+    const canNavigateToPickup = currentPhase === DriverTripPhase.EN_ROUTE_TO_PICKUP;
+    const canStartTrip = currentPhase === DriverTripPhase.AT_PICKUP;
+    const isRidePhase = currentPhase === DriverTripPhase.EN_ROUTE_TO_DESTINATION;
 
     return (
         <div style={panelStyle}>
@@ -226,9 +188,8 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
             
             <div style={lastSectionStyle}>
                 <h3 style={sectionTitleStyle}>{t.tripActionsSectionTitle}</h3>
-                {renderMainAction()}
-                <div style={secondaryButtonContainerStyle}>
-                     <button style={passenger?.phoneNumber ? callButtonStyle : {...callButtonStyle, ...disabledButtonStyle}} onClick={handleCall} disabled={!passenger?.phoneNumber}>
+                <div style={actionButtonsContainerStyle}>
+                    <button style={passenger?.phoneNumber ? callButtonStyle : {...callButtonStyle, ...disabledButtonStyle}} onClick={handleCall} disabled={!passenger?.phoneNumber}>
                         <PhoneIcon style={buttonIconStyle} />
                         {t.callButtonLabel}
                     </button>
@@ -236,11 +197,21 @@ export const CurrentTripDetailsPanel: React.FC<CurrentTripDetailsPanelProps> = (
                         <MessageBubbleIcon style={buttonIconStyle} />
                         {t.chatButtonLabel}
                     </button>
+                    <button style={canNavigateToPickup ? navigateButtonStyle : {...navigateButtonStyle, ...disabledButtonStyle}} onClick={onNavigateToPickup} disabled={!canNavigateToPickup}>
+                        <NavigationIcon style={buttonIconStyle} />
+                        {t.navigateToPickupButtonLabel}
+                    </button>
+                     <button style={canStartTrip ? startButtonStyle : {...startButtonStyle, ...disabledButtonStyle}} onClick={onStartTrip} disabled={!canStartTrip}>
+                        {t.startTripButtonLabel}
+                    </button>
+                    <button style={isRidePhase ? endButtonStyle : {...endButtonStyle, ...disabledButtonStyle}} onClick={onEndTrip} disabled={!isRidePhase}>
+                        {t.endTripButtonLabel}
+                    </button>
+                     <button style={currentPhase !== DriverTripPhase.NONE ? cancelButtonStyle : {...cancelButtonStyle, ...disabledButtonStyle}} onClick={onCancelTrip} disabled={currentPhase === DriverTripPhase.NONE}>
+                        <CancelRideIcon style={buttonIconStyle} />
+                        {t.cancelRideButton}
+                    </button>
                 </div>
-                 <button style={currentPhase !== DriverTripPhase.NONE ? cancelButtonStyle : {...cancelButtonStyle, ...disabledButtonStyle}} onClick={onCancelTrip} disabled={currentPhase === DriverTripPhase.NONE}>
-                    <CancelRideIcon style={buttonIconStyle} />
-                    {t.cancelRideButton}
-                </button>
             </div>
         </div>
     );

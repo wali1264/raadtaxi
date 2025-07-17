@@ -1,9 +1,7 @@
-
 import React, { useState, useEffect, useRef, CSSProperties, useCallback } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
 import { supabase } from '../services/supabase';
-import { RealtimeChannel } from '@supabase/supabase-js';
 import { RideRequest, DriverTripPhase, DriverProfileData, ChatMessage } from '../types'; 
 import { NewRideRequestPopup } from '../components/NewRideRequestPopup';
 import { DrawerPanel } from '../components/DrawerPanel';
@@ -12,7 +10,7 @@ import { CurrentTripDetailsPanel } from '../components/CurrentTripDetailsPanel';
 import { CancellationModal } from '../components/CancellationModal';
 import { AddPlaceModal } from '../components/AddPlaceModal';
 import { ChatModal } from '../components/ChatModal';
-import { ListIcon, CarIcon, GpsIcon, LocationMarkerIcon, DestinationMarkerIcon, ProfileIcon, DriverCarIcon, HourglassIcon, AddLocationIcon, UserPlaceMarkerIcon, CloseIcon } from '../components/icons';
+import { ListIcon, CarIcon, GpsIcon, LocationMarkerIcon, DestinationMarkerIcon, ProfileIcon, DriverCarIcon, HourglassIcon, AddLocationIcon, UserPlaceMarkerIcon } from '../components/icons';
 import { useAppContext } from '../contexts/AppContext';
 import { profileService } from '../services';
 import { getDebugMessage, getCurrentLocation } from '../utils/helpers';
@@ -20,7 +18,7 @@ import { useUserDefinedPlaces } from '../hooks/useUserDefinedPlaces';
 import { useRideRequestQueue } from '../hooks/useRideRequestQueue';
 import { useDriverTripManager } from '../hooks/useDriverTripManager';
 
-const SILENT_AUDIO_DATA_URI = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+const SILENT_AUDIO_DATA_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
 // --- Local Icon Components for New Header ---
 const PowerIcon = ({ style }: { style?: CSSProperties }) => (
@@ -54,7 +52,7 @@ export const DriverDashboardScreen = ({ onLogout }: { onLogout: () => void }): J
     const [isTogglePressed, setIsTogglePressed] = useState(false);
     const [driverProfile, setDriverProfile] = useState<Partial<DriverProfileData>>({});
     const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
-    const chatToastChannelRef = useRef<RealtimeChannel | null>(null);
+    const chatToastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
     
     const [showIncomingDrawer, setShowIncomingDrawer] = useState(false);
     const [showCurrentTripDrawer, setShowCurrentTripDrawer] = useState(false);
@@ -192,7 +190,7 @@ export const DriverDashboardScreen = ({ onLogout }: { onLogout: () => void }): J
                 const { latitude, longitude, heading } = pos.coords;
                 setDriverLocation({ lat: latitude, lng: longitude });
                 try {
-                    await supabase.from('driver_locations').upsert([{ driver_id: loggedInUserId, latitude, longitude, heading: heading ?? null, timestamp: new Date().toISOString() }], { onConflict: 'driver_id' });
+                    await supabase.from('driver_locations').upsert({ driver_id: loggedInUserId, latitude, longitude, heading, timestamp: new Date().toISOString() }, { onConflict: 'driver_id' });
                     if (actualDriverGpsMarker.current) actualDriverGpsMarker.current.setLatLng([latitude, longitude]);
                 } catch (e) { console.error('Driver location update failed:', e); }
             }, (err) => { if (err.code === err.PERMISSION_DENIED) { setIsOnline(false); alert(t.geolocationPermissionDenied); } }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
@@ -231,11 +229,6 @@ export const DriverDashboardScreen = ({ onLogout }: { onLogout: () => void }): J
         } catch (error: any) { alert(t[error.code === 1 ? 'geolocationPermissionDenied' : error.code === 2 ? 'geolocationUnavailable' : 'geolocationTimeout']); }
     };
 
-    const handleFareModalClose = () => {
-        tripActions.reset();
-    };
-
-
     const headerStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', pointerEvents: 'auto', padding: '0.5rem', boxSizing: 'border-box', width: '100%', };
     const statusToggleStyle = (isPressed: boolean): CSSProperties => ({ width: '4rem', height: '4rem', backgroundColor: isOnline ? '#2ECC71' : '#95A5A6', border: `2px solid ${isOnline ? '#27AE60' : '#7F8C8D'}`, borderRadius: '50%', cursor: !isUserVerified ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', boxShadow: isPressed ? `inset 0 5px 15px rgba(0,0,0,0.4)` : `0 8px 15px rgba(0,0,0,0.2), inset 0 -4px 5px ${isOnline ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.2)'}`, transition: 'all 0.15s ease-out', transform: isPressed ? 'scale(0.95)' : 'scale(1)', opacity: !isUserVerified ? 0.6 : 1, });
     const headerActionsStyle: CSSProperties = { display: 'flex', gap: '0.75rem', alignItems: 'center'};
@@ -248,12 +241,6 @@ export const DriverDashboardScreen = ({ onLogout }: { onLogout: () => void }): J
     const requestFareStyle: CSSProperties = { ...requestValueStyle, color: '#38a169', fontSize: '1rem' };
     const acceptButtonStyle: CSSProperties = { width: '100%', padding: '0.6rem 1rem', marginTop: '0.5rem', fontSize: '0.9rem', color: 'white', backgroundColor: '#3182ce', border: 'none', borderRadius: '0.375rem', cursor: 'pointer', transition: 'background-color 0.2s', };
     const noDataTextStyle: CSSProperties = { textAlign: 'center', color: '#718096', padding: '1rem 0', fontSize: '0.9rem' };
-
-    const modalOverlayStyle: CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 4000 };
-    const modalContentStyle: CSSProperties = { backgroundColor: 'white', padding: '1.5rem 2rem', borderRadius: '0.75rem', boxShadow: '0 5px 15px rgba(0,0,0,0.3)', width: '90%', maxWidth: '400px', textAlign: 'center' };
-    const modalTitleStyle: CSSProperties = { fontSize: '1.25rem', fontWeight: 'bold', color: '#1F2937', margin: '0 0 1rem 0' };
-    const modalMessageStyle: CSSProperties = { fontSize: '1rem', color: '#4B5563', marginBottom: '1.5rem', lineHeight: 1.6, };
-    const modalOkButtonStyle: CSSProperties = { width: '100%', padding: '0.75rem', backgroundColor: '#3182CE', color: 'white', border: 'none', borderRadius: '0.5rem', fontSize: '1rem', fontWeight: '600', cursor: 'pointer' };
 
     return (
         <div style={{ fontFamily: 'system-ui, sans-serif', direction: isRTL ? 'rtl' : 'ltr', width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>
@@ -293,23 +280,26 @@ export const DriverDashboardScreen = ({ onLogout }: { onLogout: () => void }): J
                 </>)}
             </DrawerPanel>
             <DrawerPanel currentLang={currentLang} isOpen={showCurrentTripDrawer} onClose={() => setShowCurrentTripDrawer(false)} title={t.currentTripDrawerTitle} side={isRTL ? 'left' : 'right'}>
-                {currentTrip ? <CurrentTripDetailsPanel currentLang={currentLang} trip={currentTrip} passenger={currentPassengerDetails} isLoadingPassenger={tripState.isLoadingPassengerDetails} passengerFetchError={tripState.passengerDetailsError} currentPhase={tripState.currentTripPhase} onNavigateToPickup={tripActions.handleNavigateToPickup} onArrivedAtPickup={tripActions.handleArrivedAtPickup} onStartTrip={tripActions.handleStartTrip} onNavigateToDestination={tripActions.handleNavigateToDestination} onArrivedAtDestination={tripActions.handleArrivedAtDestination} onEndTrip={tripActions.handleEndTrip} onCancelTrip={tripActions.openCancellationModal} onOpenChat={() => setIsChatModalOpen(true)} /> : <p style={noDataTextStyle}>{t.noActiveTrip}</p>}
+                {currentTrip ? <CurrentTripDetailsPanel currentLang={currentLang} trip={currentTrip} passenger={currentPassengerDetails} isLoadingPassenger={tripState.isLoadingPassengerDetails} passengerFetchError={tripState.passengerDetailsError} currentPhase={tripState.currentTripPhase} onNavigateToPickup={tripActions.handleNavigateToPickup} onStartTrip={tripActions.handleStartTrip} onEndTrip={tripActions.handleEndTrip} onCancelTrip={tripActions.openCancellationModal} onOpenChat={() => setIsChatModalOpen(true)} /> : <p style={noDataTextStyle}>{t.noActiveTrip}</p>}
             </DrawerPanel>
+            {isChatModalOpen && currentTrip && loggedInUserId && <ChatModal isOpen={isChatModalOpen} onClose={() => setIsChatModalOpen(false)} rideRequestId={currentTrip.id} otherPartyName={currentPassengerDetails?.fullName || currentTrip.passenger_name || t.defaultPassengerName} otherPartyId={currentTrip.passenger_id} />}
+            {isCancellationModalOpen && currentTrip && <CancellationModal isOpen={isCancellationModalOpen} onClose={tripActions.closeCancellationModal} onSubmit={tripActions.handleDriverCancellationSubmit} userRole="driver" currentLang={currentLang} isSubmitting={isSubmittingCancellation} />}
             {fareSummary && (
-                <div style={modalOverlayStyle}>
-                    <div style={modalContentStyle}>
-                        <h2 style={modalTitleStyle}>{t.tripEndedSuccessfullyTitle}</h2>
-                        <p style={modalMessageStyle}>
-                            {t.fareToCollect
-                                .replace('{amount}', fareSummary.amount.toLocaleString(isRTL ? 'fa-IR' : 'en-US'))
-                                .replace('{passengerName}', fareSummary.passengerName)}
-                        </p>
-                        <button style={modalOkButtonStyle} onClick={handleFareModalClose}>{t.okButton}</button>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, direction: isRTL ? 'rtl' : 'ltr' }}>
+                    <div style={{ backgroundColor: 'white', padding: '2rem', borderRadius: '0.75rem', width: '90%', maxWidth: '400px', textAlign: 'center' }}>
+                        <p style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem' }}>{t.fareToCollect.replace('{amount}', `${fareSummary.amount}`).replace('{passengerName}', fareSummary.passengerName)}</p>
+                        <button style={{ width: '100%', padding: '0.875rem', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '0.5rem' }} onClick={() => { tripActions.setFareSummary(null); tripActions.reset(); }}>{t.okButton}</button>
                     </div>
                 </div>
             )}
-            {isChatModalOpen && currentTrip && loggedInUserId && <ChatModal isOpen={isChatModalOpen} onClose={() => setIsChatModalOpen(false)} rideRequestId={currentTrip.id} otherPartyName={currentPassengerDetails?.fullName || currentTrip.passenger_name || t.defaultPassengerName} otherPartyId={currentTrip.passenger_id} />}
-            {isCancellationModalOpen && currentTrip && <CancellationModal isOpen={isCancellationModalOpen} onClose={tripActions.closeCancellationModal} onSubmit={tripActions.handleDriverCancellationSubmit} userRole="driver" currentLang={currentLang} isSubmitting={isSubmittingCancellation} />}
+             {tripState.isCalculatingFare && (
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, direction: isRTL ? 'rtl' : 'ltr' }}>
+                    <div style={{ backgroundColor: 'white', padding: '2rem', borderRadius: '0.75rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                        <HourglassIcon />
+                        <p style={{fontSize: '1.1rem', fontWeight: 500}}>{t.calculatingFare}</p>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

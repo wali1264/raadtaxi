@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { tripService, profileService } from '../services';
 import { useAppContext } from '../contexts/AppContext';
-import { RealtimeChannel, PostgrestMaybeSingleResponse } from '@supabase/supabase-js';
+import { PostgrestMaybeSingleResponse } from '@supabase/supabase-js';
 import { DriverSearchState, TripPhase, TripSheetDisplayLevel, DriverDetails, AppService, RideStatus, RideRequest } from '../types';
 import { getDebugMessage } from '../utils/helpers';
 import { PASSENGER_REQUEST_TIMEOUT_MS } from '../config/constants';
@@ -35,8 +35,8 @@ export const usePassengerTrip = () => {
         thirdPartyPhone: string;
     } | null>(null);
 
-    const rideRequestChannelRef = useRef<RealtimeChannel | null>(null);
-    const activeTripChannelRef = useRef<RealtimeChannel | null>(null);
+    const rideRequestChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+    const activeTripChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
     const passengerRequestTimeoutRef = useRef<number | null>(null);
 
     const clearPassengerRequestTimeout = useCallback(() => {

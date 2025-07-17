@@ -268,9 +268,6 @@ const faTranslations = {
   errorChatConnection: "خطا در اتصال به چت. ممکن است پیام‌ها به صورت زنده به‌روزرسانی نشوند.",
   errorChatTableMissing: "ویژگی چت در حال حاضر در دسترس نیست. لطفاً با پشتیبانی تماس بگیرید (جدول چت یافت نشد).",
   loadingMessages: "در حال بارگذاری پیام‌ها...",
-  driverArrivedAtPickupButtonLabel: "به مبدأ رسیدم",
-  navigateToDestinationButtonLabel: "مسیریابی به مقصد",
-  driverArrivedAtDestinationButtonLabel: "به مقصد رسیدم",
 };
 
 export type TranslationSet = typeof faTranslations;
@@ -542,9 +539,6 @@ const psTranslations: TranslationSet = {
   errorChatConnection: "د چټ سره په نښلولو کې تېروتنه. کیدای شي پیغامونه په ژوندۍ بڼه تازه نشي.",
   errorChatTableMissing: "د چټ ځانګړتیا دا مهال شتون نلري. مهرباني وکړئ له ملاتړ سره اړیکه ونیسئ (جدول ونه موندل شو).",
   loadingMessages: "پیغامونه بار کیږي...",
-  driverArrivedAtPickupButtonLabel: "مبدأ ته ورسېدم",
-  navigateToDestinationButtonLabel: "مقصد ته مسیریابی",
-  driverArrivedAtDestinationButtonLabel: "مقصد ته ورسېدم",
 };
 
 const enTranslations: TranslationSet = {
@@ -814,9 +808,6 @@ const enTranslations: TranslationSet = {
   errorChatConnection: "Connection error. Chat may not update live.",
   errorChatTableMissing: "Chat feature is currently unavailable. Please contact support (chat table not found).",
   loadingMessages: "Loading messages...",
-  driverArrivedAtPickupButtonLabel: "Arrived at Pickup",
-  navigateToDestinationButtonLabel: "Navigate to Destination",
-  driverArrivedAtDestinationButtonLabel: "Arrived at Destination",
 };
 
 export const translations: Record<Language, TranslationSet> = {

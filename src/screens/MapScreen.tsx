@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, CSSProperties, useCallback, useContext } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import L from 'leaflet';
-import { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import { AppService, DriverDetails, TripPhase, TripSheetDisplayLevel, DriverSearchState, UserRole, DestinationSuggestion, UserDefinedPlace, RideRequest } from '../types'; 
 import { debounce, getDistanceFromLatLonInKm, getDebugMessage, getCurrentLocation } from '../utils/helpers';
@@ -113,7 +112,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [originMapMarker, setOriginMapMarker] = useState<L.Marker | null>(null);
   const [destinationMapMarker, setDestinationMapMarker] = useState<L.Marker | null>(null);
   const driverMarkerRef = useRef<L.Marker | null>(null);
-  const driverLocationChannelRef = useRef<RealtimeChannel | null>(null);
+  const driverLocationChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   
   const debouncedUpdateAddressRef = useRef<((map: L.Map) => Promise<void>) | undefined>(undefined);
   

@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback, CSSProperties } from 'react';
 import { supabase } from '../services/supabase';
 import { translations, Language, TranslationSet } from '../translations';
@@ -15,13 +13,6 @@ const serviceImageMap: Record<string, React.FC<{ style?: CSSProperties }>> = {
   'cargoRickshaw': MotorcycleRickshawIcon,
   // Add other mappings as needed
 };
-
-const hardcodedRatesPerKm: Record<string, number> = {
-    'rickshaw': 15,
-    'car': 15,
-    'cargoRickshaw': 20,
-};
-
 
 export const useAppServices = (currentLang: Language) => {
   const [appServiceCategories, setAppServiceCategories] = useState<AppServiceCategory[]>([]);
@@ -71,17 +62,35 @@ export const useAppServices = (currentLang: Language) => {
         if (Object.prototype.hasOwnProperty.call(t, descKeyCandidate)) {
             descKey = descKeyCandidate as keyof TranslationSet;
         }
+        
+        let pricePerKm: number | undefined;
+        // Business logic for fares is enforced here, ignoring DB values for price_per_km.
+        switch (dbService.name_key) {
+            case 'serviceNameRickshaw':
+                pricePerKm = 15;
+                break;
+            case 'serviceNameCar':
+                pricePerKm = 20;
+                break;
+            case 'serviceNameCargoRickshaw':
+                pricePerKm = 20;
+                break;
+            default:
+                // This service type is not recognized for pricing. It will be filtered out.
+                break;
+        }
+        
+        // Enforce the minimum fare of 30 for all services, overriding any DB value.
+        const MIN_FARE_OVERRIDE = 30;
 
-        const pricePerKm = hardcodedRatesPerKm[dbService.image_identifier];
-
-        // Only process services that have a hardcoded rate
+        // Only process services that have a defined price from our business logic
         if (pricePerKm !== undefined) {
             const appService: AppService = {
               id: dbService.id,
               nameKey: nameKey,
               descKey: descKey,
               pricePerKm: pricePerKm,
-              minFare: dbService.min_fare,
+              minFare: MIN_FARE_OVERRIDE,
               imageComponent: imageComponent,
               category: dbService.category,
             };
