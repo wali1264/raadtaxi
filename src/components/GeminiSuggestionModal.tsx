@@ -1,4 +1,3 @@
-
 import React, { useState, CSSProperties } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { translations, Language } from '../translations';
@@ -76,7 +75,7 @@ export const GeminiSuggestionModal: React.FC<GeminiSuggestionModalProps> = ({ cu
         try {
             const ai = new GoogleGenAI({apiKey: process.env.API_KEY as string});
             const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash-preview-04-17',
+              model: 'gemini-2.5-flash',
               contents: fullPrompt,
               config: {
                 responseMimeType: "application/json",

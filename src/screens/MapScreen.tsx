@@ -127,6 +127,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   const [currentUserLocation, setCurrentUserLocation] = useState<{lat: number, lng: number} | null>(null);
   const suggestionMarkersLayerRef = useRef<L.LayerGroup | null>(null);
 
+  const isTripActive = showDriverSearchSheet || showTripInProgressSheet;
+
 
   const updateAddressFromMapCenter = useCallback(async (map: L.Map) => {
     if (showDriverSearchSheet || showTripInProgressSheet || showSuggestionModal) return; 
@@ -323,42 +325,44 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
   }, [mapInstanceRef.current]);
 
   useEffect(() => {
-      const map = mapInstanceRef.current;
-      const layer = userPlacesLayerRef.current;
-      if (!map || !layer) return;
+    const map = mapInstanceRef.current;
+    const layer = userPlacesLayerRef.current;
+    if (!map || !layer) return;
 
-      layer.clearLayers();
-      userPlaceMarkersRef.current = [];
+    layer.clearLayers();
+    userPlaceMarkersRef.current = [];
 
-      userDefinedPlaces.forEach(place => {
-          const iconHTML = ReactDOMServer.renderToString(<UserPlaceMarkerIcon />);
-          const userPlaceIcon = L.divIcon({
-              html: iconHTML,
-              className: 'user-defined-place-icon',
-              iconSize: [24, 38],
-              iconAnchor: [12, 38],
-          });
+    userDefinedPlaces.forEach(place => {
+        const isIconVisible = !isTripActive;
+        const iconHTML = isIconVisible ? ReactDOMServer.renderToString(<UserPlaceMarkerIcon />) : '';
+        const userPlaceIcon = L.divIcon({
+            html: iconHTML,
+            className: 'user-defined-place-icon',
+            iconSize: isIconVisible ? [24, 38] : [0, 0],
+            iconAnchor: isIconVisible ? [12, 38] : [0, 0],
+        });
 
-          const marker = L.marker([place.location.lat, place.location.lng], { icon: userPlaceIcon })
-              .addTo(layer)
-              .bindTooltip(place.name, {
-                  permanent: true,
-                  direction: 'right',
-                  offset: [10, -25], // Adjust to align vertically with the marker's center
-                  className: 'user-place-label'
-              });
-          
-          userPlaceMarkersRef.current.push(marker);
-      });
+        const tooltipClassName = isTripActive ? 'user-place-label user-place-label-trip-active' : 'user-place-label';
 
-      // Set initial visibility based on current zoom
-      const currentZoom = map.getZoom();
-      userPlaceMarkersRef.current.forEach(marker => {
-          if (currentZoom < 15) {
-              marker.closeTooltip();
-          }
-      });
-  }, [userDefinedPlaces, mapInstanceRef.current]);
+        const marker = L.marker([place.location.lat, place.location.lng], { icon: userPlaceIcon })
+            .addTo(layer)
+            .bindTooltip(place.name, {
+                permanent: true,
+                direction: 'right',
+                offset: [10, -25],
+                className: tooltipClassName
+            });
+        
+        userPlaceMarkersRef.current.push(marker);
+    });
+
+    const currentZoom = map.getZoom();
+    userPlaceMarkersRef.current.forEach(marker => {
+        if (currentZoom < 15) {
+            marker.closeTooltip();
+        }
+    });
+  }, [userDefinedPlaces, mapInstanceRef.current, isTripActive]);
 
 
   useEffect(() => { if (mapContainerRef.current) { mapContainerRef.current.style.cursor = isFetchingPois ? 'wait' : 'default'; } }, [isFetchingPois]);

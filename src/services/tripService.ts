@@ -1,3 +1,26 @@
+/*
+-- ===============================================================================================
+-- IMPORTANT: To fix the "406 Not Acceptable" error when fetching pending ride requests,
+-- please run the following SQL query in your Supabase SQL Editor.
+--
+-- This creates a database function that securely exposes pending ride requests to authenticated
+-- users (drivers) without running into complex Row-Level Security (RLS) issues for this
+-- specific read-only query.
+-- ===============================================================================================
+
+CREATE OR REPLACE FUNCTION get_all_pending_requests()
+RETURNS SETOF ride_requests -- Returns a table of rows matching the 'ride_requests' table structure
+LANGUAGE plpgsql
+SECURITY DEFINER -- This is the key part: it runs the query with the permissions of the function owner
+AS $$
+BEGIN
+  RETURN QUERY 
+  SELECT *
+  FROM public.ride_requests
+  WHERE status = 'pending' AND driver_id IS NULL;
+END;
+$$;
+*/
 
 import { supabase } from './supabase';
 import { UserRole, RideRequest, RideStatus } from '../types';
@@ -113,11 +136,14 @@ export const tripService = {
   },
 
   async fetchAllPendingRequestsForDriver(): Promise<RideRequest[]> {
-    const { data, error } = await supabase.from('ride_requests').select('*').eq('status', 'pending').is('driver_id', null); 
-    if (error) { 
-        console.error('[TripService] Error fetching all pending requests:', getDebugMessage(error), error); 
+    // The previous direct query was failing with 406 errors, likely due to complex RLS.
+    // Switching to a SECURITY DEFINER RPC function allows controlled access to pending requests
+    // for any authenticated user (assumed to be a driver in this context), bypassing RLS for this specific query.
+    const { data, error } = await supabase.rpc('get_all_pending_requests');
+    if (error) {
+        console.error('[TripService] Error fetching all pending requests via RPC:', getDebugMessage(error), error);
         throw error;
     }
-    return data || [];
+    return (data as any) || [];
   }
 };

@@ -62,6 +62,17 @@ const globalStyles = `
     white-space: nowrap;
     text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
   }
+  .user-place-label-trip-active {
+    background-color: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    color: #000;
+    font-weight: 600;
+    text-shadow: none;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
   .route-distance-label {
     background: transparent;
     border: none;

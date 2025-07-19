@@ -119,6 +119,9 @@ export const DriverDashboardScreen = ({ onLogout }: { onLogout: () => void }): J
     
     const { currentTrip, currentPassengerDetails, isCancellationModalOpen, isSubmittingCancellation, fareSummary } = tripState;
     const { requestInPopup, popupTimer, allPendingRequests, timedOutOrDeclinedRequests, isLoading, error } = queueState;
+    
+    const isTripActive = !!tripState.currentTrip;
+
 
     useEffect(() => {
         const rideId = currentTrip?.id;
@@ -170,17 +173,40 @@ export const DriverDashboardScreen = ({ onLogout }: { onLogout: () => void }): J
     }, [mapInstanceRef.current]);
 
     useEffect(() => {
-        const map = mapInstanceRef.current, layer = userPlacesLayerRef.current;
+        const map = mapInstanceRef.current;
+        const layer = userPlacesLayerRef.current;
         if (!map || !layer) return;
+    
         layer.clearLayers();
         userPlaceMarkersRef.current = [];
+    
         userDefinedPlaces.forEach(place => {
-            const icon = L.divIcon({ html: ReactDOMServer.renderToString(<UserPlaceMarkerIcon />), className: 'user-defined-place-icon', iconSize: [24, 38], iconAnchor: [12, 38] });
-            const marker = L.marker([place.location.lat, place.location.lng], { icon }).addTo(layer).bindTooltip(place.name, { permanent: true, direction: 'right', offset: [10, -25], className: 'user-place-label' });
+            const isIconVisible = !isTripActive;
+            const iconHTML = isIconVisible ? ReactDOMServer.renderToString(<UserPlaceMarkerIcon />) : '';
+            const icon = L.divIcon({
+                html: iconHTML,
+                className: 'user-defined-place-icon',
+                iconSize: isIconVisible ? [24, 38] : [0, 0],
+                iconAnchor: isIconVisible ? [12, 38] : [0, 0]
+            });
+    
+            const tooltipClassName = isTripActive ? 'user-place-label user-place-label-trip-active' : 'user-place-label';
+    
+            const marker = L.marker([place.location.lat, place.location.lng], { icon })
+                .addTo(layer)
+                .bindTooltip(place.name, { 
+                    permanent: true, 
+                    direction: 'right', 
+                    offset: [10, -25], 
+                    className: tooltipClassName 
+                });
             userPlaceMarkersRef.current.push(marker);
         });
-        if (map.getZoom() < 15) userPlaceMarkersRef.current.forEach(m => m.closeTooltip());
-    }, [userDefinedPlaces, mapInstanceRef.current]);
+    
+        if (map.getZoom() < 15) {
+            userPlaceMarkersRef.current.forEach(m => m.closeTooltip());
+        }
+    }, [userDefinedPlaces, mapInstanceRef.current, isTripActive]);
 
     useEffect(() => {
         const map = mapInstanceRef.current;

@@ -64,7 +64,7 @@ const App = () => {
     appServiceCategories, 
     isLoadingServices: isLoadingServicesGlobal, 
     serviceFetchError: serviceFetchErrorGlobal 
-  } = useAppServices(currentLang);
+  } = useAppServices(currentLang, !isInitializing, loggedInUserId);
 
   useEffect(() => {
     const savedLang = localStorage.getItem('appLang') as Language | null;

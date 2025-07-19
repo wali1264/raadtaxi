@@ -14,7 +14,7 @@ const serviceImageMap: Record<string, React.FC<{ style?: CSSProperties }>> = {
   // Add other mappings as needed
 };
 
-export const useAppServices = (currentLang: Language) => {
+export const useAppServices = (currentLang: Language, isAuthReady: boolean, loggedInUserId: string | null) => {
   const [appServiceCategories, setAppServiceCategories] = useState<AppServiceCategory[]>([]);
   const [allAppServices, setAllAppServices] = useState<AppService[]>([]);
   const [isLoadingServices, setIsLoadingServices] = useState<boolean>(true);
@@ -123,8 +123,16 @@ export const useAppServices = (currentLang: Language) => {
   }, [currentLang, t]);
 
   useEffect(() => {
-    fetchAndProcessServices();
-  }, [fetchAndProcessServices]);
+    if (isAuthReady) {
+      fetchAndProcessServices();
+    } else {
+      // While authentication is initializing, ensure we are in a loading state
+      // to prevent downstream components from showing a "no data" message prematurely.
+      setIsLoadingServices(true);
+      setAllAppServices([]);
+      setAppServiceCategories([]);
+    }
+  }, [isAuthReady, loggedInUserId, fetchAndProcessServices]);
 
   return {
     allAppServices,
