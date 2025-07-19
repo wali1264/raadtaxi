@@ -38,26 +38,7 @@ export interface Database {
           message_text?: string
           is_read?: boolean
         }
-        Relationships: [
-          {
-            foreignKeyName: "chat_messages_ride_request_id_fkey"
-            columns: ["ride_request_id"]
-            referencedRelation: "ride_requests"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "chat_messages_sender_id_fkey"
-            columns: ["sender_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "chat_messages_receiver_id_fkey"
-            columns: ["receiver_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          }
-        ]
+        Relationships: []
       }
       driver_locations: {
         Row: {
@@ -81,14 +62,7 @@ export interface Database {
           longitude?: number
           timestamp?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "driver_locations_driver_id_fkey"
-            columns: ["driver_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          }
-        ]
+        Relationships: []
       }
       drivers_profile: {
         Row: {
@@ -130,14 +104,7 @@ export interface Database {
           vehicle_color?: string | null
           vehicle_model?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "drivers_profile_user_id_fkey"
-            columns: ["user_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          }
-        ]
+        Relationships: []
       }
       push_subscriptions: {
         Row: {
@@ -158,14 +125,7 @@ export interface Database {
           subscription?: Json
           created_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "push_subscriptions_user_id_fkey"
-            columns: ["user_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          }
-        ]
+        Relationships: []
       }
       ride_cancellations: {
         Row: {
@@ -195,20 +155,7 @@ export interface Database {
           reason_key?: string
           ride_request_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "ride_cancellations_cancelled_by_user_id_fkey"
-            columns: ["cancelled_by_user_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ride_cancellations_ride_request_id_fkey"
-            columns: ["ride_request_id"]
-            referencedRelation: "ride_requests"
-            referencedColumns: ["id"]
-          }
-        ]
+        Relationships: []
       }
       ride_requests: {
         Row: {
@@ -289,26 +236,7 @@ export interface Database {
           trip_started_at?: string | null
           updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "ride_requests_driver_id_fkey"
-            columns: ["driver_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ride_requests_passenger_id_fkey"
-            columns: ["passenger_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ride_requests_service_id_fkey"
-            columns: ["service_id"]
-            referencedRelation: "services"
-            referencedColumns: ["id"]
-          }
-        ]
+        Relationships: []
       }
       services: {
         Row: {
@@ -374,14 +302,7 @@ export interface Database {
           name?: string
           user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "user_defined_places_user_id_fkey"
-            columns: ["user_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          }
-        ]
+        Relationships: []
       }
       users: {
         Row: {

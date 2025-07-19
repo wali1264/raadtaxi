@@ -14,6 +14,7 @@ export interface AppContextType {
   appServiceCategories: AppServiceCategory[];
   isLoadingServicesGlobal: boolean;
   serviceFetchErrorGlobal: string | null;
+  playClickSound: () => void;
   showToast: (message: string, type?: 'error' | 'success' | 'info') => void;
 }
 

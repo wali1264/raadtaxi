@@ -77,7 +77,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
       showDriverSearchSheet, driverSearchState, notifiedDriverCount,
       showTripInProgressSheet, tripSheetDisplayLevel, currentTripFare,
       currentDriverDetails, tripPhase, estimatedTimeToDestination,
-      isCancellationModalOpen, isSubmittingCancellation, currentRideRequestId
+      isCancellationModalOpen, isSubmittingCancellation, currentRideRequestId,
+      routeToOriginPolyline, routeToDestinationPolyline
   } = tripState;
 
   const isRTL = currentLang !== 'en';
@@ -416,13 +417,6 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
                             const carIconHTML = ReactDOMServer.renderToString(<DriverCarIcon />);
                             const carIcon = L.divIcon({ html: carIconHTML, className: 'driver-car-icon', iconSize: [40, 40], iconAnchor: [20, 20] });
                             driverMarkerRef.current = L.marker(newLatLng, { icon: carIcon, zIndexOffset: 1000 }).addTo(map);
-                            
-                            const passengerPickupPosition = confirmedOrigin ? L.latLng(confirmedOrigin.lat, confirmedOrigin.lng) : null;
-                            
-                            if (passengerPickupPosition) {
-                                const bounds = L.latLngBounds([passengerPickupPosition, newLatLng]);
-                                map.fitBounds(bounds, { padding: [80, 80], maxZoom: 17, animate: true });
-                            }
                         } else {
                             driverMarkerRef.current.setLatLng(newLatLng);
                         }
@@ -691,6 +685,43 @@ export const MapScreen: React.FC<MapScreenProps> = ({ onNavigateToProfile }) => 
         map.fitBounds(bounds, { paddingTopLeft: [40, 40], paddingBottomRight: [40, bottomPadding] });
     }
   };
+  
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const layer = routeLayerRef.current;
+    if (!map || !layer) return;
+
+    layer.clearLayers();
+
+    let polylineStr = null;
+    let color = '#4285F4';
+
+    if (routeToDestinationPolyline) {
+        polylineStr = routeToDestinationPolyline;
+        color = '#28a745';
+    } else if (routeToOriginPolyline) {
+        polylineStr = routeToOriginPolyline;
+        color = '#007bff';
+    }
+
+    if (polylineStr) {
+        try {
+            const geometry = JSON.parse(polylineStr);
+            const leafletCoords = geometry.coordinates.map((coord: number[]) => [coord[1], coord[0]] as L.LatLngExpression);
+            const polyline = L.polyline(leafletCoords, { color, weight: 5, opacity: 0.8 }).addTo(layer);
+            
+            const bounds = polyline.getBounds();
+            if (driverMarkerRef.current) {
+                bounds.extend(driverMarkerRef.current.getLatLng());
+            }
+
+            map.fitBounds(bounds, { padding: [80, 80], maxZoom: 17 });
+            
+        } catch (e) {
+            console.error("Failed to parse and draw route polyline:", e);
+        }
+    }
+  }, [routeToOriginPolyline, routeToDestinationPolyline]);
   
   const toggleServiceDropdown = () => setIsServiceDropdownOpen(!isServiceDropdownOpen);
   const selectServiceType = (type: 'self' | 'other') => { setServiceFor(type); setIsServiceDropdownOpen(false); if (type === 'self') { setThirdPartyName(''); setThirdPartyPhone(''); setThirdPartyFormError(''); } };

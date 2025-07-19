@@ -81,7 +81,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose, rideReque
                         }
                     )
                     .subscribe((status, err) => {
-                        if (status === 'SUBSCRIBE_FAILED') {
+                        if (status === 'CHANNEL_ERROR') {
                             console.error("Realtime subscription failed:", getDebugMessage(err), err);
                             setError(t.errorChatConnection);
                         }

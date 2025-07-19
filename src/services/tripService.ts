@@ -35,19 +35,26 @@ export const tripService = {
     return data as RideRequest | null;
   },
 
-  async updateRide(rideId: string, updates: Partial<Omit<RideRequest, 'id' | 'created_at' | 'updated_at'>>): Promise<RideRequest> {
+  async updateRide(rideId: string, updates: Partial<Omit<RideRequest, 'id' | 'created_at' | 'updated_at'>>): Promise<RideRequest | null> {
     const updatePayload: Database['public']['Tables']['ride_requests']['Update'] = { ...updates, updated_at: new Date().toISOString() };
     const { data, error } = await supabase
         .from('ride_requests')
         .update(updatePayload)
         .eq('id', rideId)
-        .select()
-        .single();
+        .select();
+
     if (error) {
         console.error("TripService: Error updating ride -", getDebugMessage(error), error);
         throw error;
     }
-    return data as RideRequest;
+    
+    // If data is null or empty, it means the row was not found or RLS prevented the update.
+    // This handles the race condition where the ride is accepted/cancelled by another party.
+    if (!data || data.length === 0) {
+        return null;
+    }
+
+    return data[0] as RideRequest;
   },
 
   async submitCancellationReport(details: { rideId: string, userId: string, role: UserRole, reasonKey: string, customReason: string | null }) {

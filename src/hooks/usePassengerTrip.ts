@@ -23,6 +23,8 @@ export const usePassengerTrip = () => {
     const [currentDriverDetails, setCurrentDriverDetails] = useState<DriverDetails | null>(null);
     const [tripPhase, setTripPhase] = useState<TripPhase>(null);
     const [estimatedTimeToDestination, setEstimatedTimeToDestination] = useState<number | null>(null);
+    const [routeToOriginPolyline, setRouteToOriginPolyline] = useState<string | null>(null);
+    const [routeToDestinationPolyline, setRouteToDestinationPolyline] = useState<string | null>(null);
 
     const [isCancellationModalOpen, setIsCancellationModalOpen] = useState(false);
     const [isSubmittingCancellation, setIsSubmittingCancellation] = useState(false);
@@ -65,6 +67,8 @@ export const usePassengerTrip = () => {
         setIsCancellationModalOpen(false);
         setIsSubmittingCancellation(false);
         setLastRequestArgs(null);
+        setRouteToOriginPolyline(null);
+        setRouteToDestinationPolyline(null);
     }, [clearPassengerRequestTimeout, supabase]);
 
     const handleDriverAssigned = useCallback(async (updatedRequest: RideRequest) => {
@@ -110,6 +114,7 @@ export const usePassengerTrip = () => {
         setShowTripInProgressSheet(true);
         setTripPhase('enRouteToOrigin');
         setTripSheetDisplayLevel('default');
+        setRouteToOriginPolyline(updatedRequest.route_to_origin_polyline);
         
         if (rideRequestChannelRef.current) {
             supabase.removeChannel(rideRequestChannelRef.current);
@@ -181,10 +186,13 @@ export const usePassengerTrip = () => {
                     setCurrentTripFare(updatedTrip.actual_fare || updatedTrip.estimated_fare || null);
                 } else if (updatedTrip.status === 'trip_started') {
                     setTripPhase('enRouteToDestination');
-                } else if (updatedTrip.driver_arrived_at_origin_at) {
+                    setRouteToOriginPolyline(null); // Clear old route
+                    setRouteToDestinationPolyline(updatedTrip.route_to_destination_polyline);
+                } else if (updatedTrip.status === 'driver_at_origin') {
                     setTripPhase('atPickup');
                 } else if (updatedTrip.status === 'accepted') {
                     setTripPhase('enRouteToOrigin');
+                    setRouteToOriginPolyline(updatedTrip.route_to_origin_polyline);
                 }
             }).subscribe();
             
@@ -209,8 +217,11 @@ export const usePassengerTrip = () => {
                     recoveredTripPhase = 'arrivedAtDestination';
                 } else if (activeTrip.status === 'trip_started') {
                     recoveredTripPhase = 'enRouteToDestination';
-                } else if (activeTrip.driver_arrived_at_origin_at) {
+                     setRouteToDestinationPolyline(activeTrip.route_to_destination_polyline);
+                } else if (activeTrip.status === 'driver_at_origin') {
                     recoveredTripPhase = 'atPickup';
+                } else if (activeTrip.status === 'accepted' || activeTrip.status === 'driver_en_route_to_origin') {
+                    setRouteToOriginPolyline(activeTrip.route_to_origin_polyline);
                 }
                 
                 setTripPhase(recoveredTripPhase);
@@ -258,6 +269,7 @@ export const usePassengerTrip = () => {
             driverSearchState, notifiedDriverCount, showDriverSearchSheet, currentRideRequestId,
             showTripInProgressSheet, tripSheetDisplayLevel, currentTripFare, currentDriverDetails,
             tripPhase, estimatedTimeToDestination, isCancellationModalOpen, isSubmittingCancellation,
+            routeToOriginPolyline, routeToDestinationPolyline
         },
         tripActions: {
             startRideRequest,

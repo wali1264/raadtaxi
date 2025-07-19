@@ -145,9 +145,21 @@ export const DriverDashboardScreen = ({ onLogout }: { onLogout: () => void }): J
             mapInstanceRef.current = map;
             userPlacesLayerRef.current = L.layerGroup().addTo(map);
         }
-        if (loggedInUserId && !driverProfile.userId) profileService.fetchDriverProfile(loggedInUserId).then(setDriverProfile).catch(err => console.error("Error fetching driver profile:", err));
-        return () => { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } tripActions.reset(); };
-    }, [loggedInUserId, tripActions.reset]);
+        if (loggedInUserId) {
+            if (!driverProfile.userId) {
+                profileService.fetchDriverProfile(loggedInUserId).then(setDriverProfile).catch(err => console.error("Error fetching driver profile:", err));
+            }
+            tripActions.recoverTrip();
+        }
+        return () => { 
+            if (mapInstanceRef.current) { 
+                mapInstanceRef.current.remove(); 
+                mapInstanceRef.current = null; 
+            } 
+            tripActions.reset(); 
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loggedInUserId]);
     
     useEffect(() => {
         const map = mapInstanceRef.current;
@@ -280,7 +292,7 @@ export const DriverDashboardScreen = ({ onLogout }: { onLogout: () => void }): J
                 </>)}
             </DrawerPanel>
             <DrawerPanel currentLang={currentLang} isOpen={showCurrentTripDrawer} onClose={() => setShowCurrentTripDrawer(false)} title={t.currentTripDrawerTitle} side={isRTL ? 'left' : 'right'}>
-                {currentTrip ? <CurrentTripDetailsPanel currentLang={currentLang} trip={currentTrip} passenger={currentPassengerDetails} isLoadingPassenger={tripState.isLoadingPassengerDetails} passengerFetchError={tripState.passengerDetailsError} currentPhase={tripState.currentTripPhase} onNavigateToPickup={tripActions.handleNavigateToPickup} onStartTrip={tripActions.handleStartTrip} onEndTrip={tripActions.handleEndTrip} onCancelTrip={tripActions.openCancellationModal} onOpenChat={() => setIsChatModalOpen(true)} /> : <p style={noDataTextStyle}>{t.noActiveTrip}</p>}
+                {currentTrip ? <CurrentTripDetailsPanel currentLang={currentLang} trip={currentTrip} passenger={currentPassengerDetails} isLoadingPassenger={tripState.isLoadingPassengerDetails} passengerFetchError={tripState.passengerDetailsError} currentPhase={tripState.currentTripPhase} onArrivedAtPickup={tripActions.handleArrivedAtPickup} onStartTrip={tripActions.handleStartTrip} onEndTrip={tripActions.handleEndTrip} onCancelTrip={tripActions.openCancellationModal} onOpenChat={() => setIsChatModalOpen(true)} onActionClick={() => setShowCurrentTripDrawer(false)} /> : <p style={noDataTextStyle}>{t.noActiveTrip}</p>}
             </DrawerPanel>
             {isChatModalOpen && currentTrip && loggedInUserId && <ChatModal isOpen={isChatModalOpen} onClose={() => setIsChatModalOpen(false)} rideRequestId={currentTrip.id} otherPartyName={currentPassengerDetails?.fullName || currentTrip.passenger_name || t.defaultPassengerName} otherPartyId={currentTrip.passenger_id} />}
             {isCancellationModalOpen && currentTrip && <CancellationModal isOpen={isCancellationModalOpen} onClose={tripActions.closeCancellationModal} onSubmit={tripActions.handleDriverCancellationSubmit} userRole="driver" currentLang={currentLang} isSubmitting={isSubmittingCancellation} />}

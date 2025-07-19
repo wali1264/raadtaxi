@@ -42,6 +42,7 @@ export type RideStatus =
   | 'pending'
   | 'accepted'
   | 'driver_en_route_to_origin'
+  | 'driver_at_origin'
   | 'trip_started'
   | 'driver_at_destination'
   | 'trip_completed'

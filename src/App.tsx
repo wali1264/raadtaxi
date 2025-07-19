@@ -12,6 +12,7 @@ import { Toast } from './components/Toast'; // Import the new Toast component
 import { AppContext, AppContextType } from './contexts/AppContext';
 import { useAppServices } from './hooks/useAppServices';
 import { useAuth } from './hooks/useAuth'; // Import useAuth if App.tsx becomes the main App again
+import { playClickSound, unlockAudioContext } from './utils/sound-player';
 
 // This App component might become redundant if index.tsx's App is the primary one.
 // For now, making it consistent with the hook-based approach.
@@ -28,6 +29,21 @@ const App = () => {
         setToast({ message, type });
     }, 50);
   };
+
+  // Effect to unlock audio context on first user interaction
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+        unlockAudioContext();
+        window.removeEventListener('click', handleFirstInteraction);
+        window.removeEventListener('touchstart', handleFirstInteraction);
+    };
+    window.addEventListener('click', handleFirstInteraction);
+    window.addEventListener('touchstart', handleFirstInteraction);
+    return () => {
+        window.removeEventListener('click', handleFirstInteraction);
+        window.removeEventListener('touchstart', handleFirstInteraction);
+    };
+  }, []);
 
   const {
     isInitializing, // from useAuth
@@ -125,6 +141,7 @@ const App = () => {
     appServiceCategories,
     isLoadingServicesGlobal,
     serviceFetchErrorGlobal,
+    playClickSound,
     showToast,
   };
 

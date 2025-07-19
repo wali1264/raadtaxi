@@ -85,7 +85,7 @@ export const useAuth = (currentLang: Language, setCurrentScreen: (screen: Screen
   }, [setCurrentScreen, t, showToast]);
 
   const handlePasswordConfirmed = useCallback(async (password: string) => {
-    const fakeEmail = `${userPhoneNumber}@example.com`;
+    const fakeEmail = `phone-${userPhoneNumber}@example.com`;
 
     try {
         let authResult: { user: any; session: any; } | null;

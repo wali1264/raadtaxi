@@ -39,7 +39,7 @@ export const profileService = {
         full_name: details.fullName,
         current_language: details.currentLang,
         profile_pic_url: '', 
-        is_verified: true, 
+        is_verified: details.role === 'passenger', 
       };
     const { data, error } = await supabase
       .from('users')
